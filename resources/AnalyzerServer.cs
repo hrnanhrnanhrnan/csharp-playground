@@ -40,39 +40,6 @@ app.MapGet("/alive", () =>
 
 var signalR = app.Services.GetRequiredService<IHubContext<AnalyzerHub>>();
 
-// var dirPath = args.LastOrDefault() ?? @"C:\Users\hrnan\.csharp_playground\playground";
-
-// Console.WriteLine(dirPath);
-// var filePath = Path.Combine(dirPath, "Program.cs");
-
-// using var watcher = new FileSystemWatcher(dirPath, "Program.cs")
-// {
-//     EnableRaisingEvents = true,
-//     NotifyFilter = NotifyFilters.LastWrite
-// };
-
-// var analyzer = new Analyzer(filePath);
-// bool isAnalyzing = false;
-
-// watcher.Changed += async (s, e) =>
-// {
-//     if (isAnalyzing || e.ChangeType != WatcherChangeTypes.Changed)
-//     {
-//         return;
-//     }
-
-//     System.Console.WriteLine($"Detected changes in {e.FullPath}");
-//     isAnalyzing = true;
-//     System.Console.WriteLine("Starting to analyze");
-//     var result = await analyzer.Analyze();
-//     isAnalyzing = false;
-
-//     System.Console.WriteLine("Sending data...");
-//     await signalR.Clients.All.SendAsync("AnalyzedData", JsonConvert.SerializeObject(result));
-// };
-
-// System.Console.WriteLine($"Watching file: {filePath}, enter to exit...");
-
 app.Run();
 
 record AnalyzedDataItem(string Line, object Value);
