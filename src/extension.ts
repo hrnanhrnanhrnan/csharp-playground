@@ -1,12 +1,12 @@
 // The module 'vscode' contains the VS Code extensibility API
 // Import the module and reference it with the alias vscode in your code below
 import * as vscode from "vscode";
-import { ChildProcessWithoutNullStreams, exec, spawn } from "child_process";
+import { exec } from "child_process";
 import * as os from "os";
-import { existsSync, constants } from "fs";
+import { existsSync } from "fs";
 import path from "path";
 import { promisify } from "util";
-import { access, copyFile, mkdir, readFile, writeFile } from "fs/promises";
+import { copyFile, mkdir, writeFile } from "fs/promises";
 import * as signalR from "@microsoft/signalr";
 
 const execPromise = promisify(exec);
@@ -26,15 +26,10 @@ const playgroundDirUri = vscode.Uri.file(playgroundDirPath);
 const playgroundFilePath = path
   .join(playgroundDirPath, "Program.cs")
   .toLowerCase();
-let analyzerServerProcess: ChildProcessWithoutNullStreams | undefined;
 let connection: signalR.HubConnection | undefined;
 let channel: vscode.OutputChannel | undefined;
-let playgroundTerminal: vscode.Terminal | undefined;
 let analyzerServerCsProjResourcePath: string = "";
 let analyzerServerResourcePath: string = "";
-const runRestOfPlayStateName = "ContinuePlayCommand";
-let extensionContext: vscode.ExtensionContext | undefined;
-const stateFilePath = path.join(homeDir, extensionDirName, "state.json");
 const analyzerServerTerminalName = "Analyzer-runner";
 const playgorundRunnerTerminalName = "Playground-runner";
 const helloMessage = `// Thank you for using "${extensionName}"
@@ -48,7 +43,6 @@ Console.WriteLine("Hello Playground!");`;
 export async function activate(context: vscode.ExtensionContext) {
   // Use the console to output diagnostic information (console.log) and errors (console.error)
   // This line of code will only be executed once when your extension is activated
-  extensionContext = context;
   console.log(
     `Congratulations, your extension "${extensionName}" is now active!`
   );
@@ -89,87 +83,103 @@ export async function activate(context: vscode.ExtensionContext) {
 
   AnalyzerConnectionManager.setInlayHintsProvider(inlayHintsProvider);
 
-  context.subscriptions.push(inlayHintsDisposable);
-
-  // The command has been defined in the package.json file
-  // Now provide the implementation of the command with registerCommand
-  // The commandId parameter must match the command field in package.json
-
   const stopDisposable = vscode.commands.registerCommand(
     `${extensionName}.stop`,
-    async () => {
-      await AnalyzerConnectionManager.stopConnection();
-      AnalyzerConnectionManager.dispose();
-
-      disposeTerminals();
-      removePlaygroundFromWorkspace();
-    }
+    stopCommand
   );
 
   const playDisposable = vscode.commands.registerCommand(
     `${extensionName}.play`,
-    async () => {
-      const success = await createCsharp(playgroundDirPath, channel!);
-
-      if (!success) {
-        await alertUser("It went wrong creating the project, look in output", "error");
-        return;
-      }
-
-      if (
-        !(await tryCreateAanalyzerServer(
-          analyzerServerResourcePath,
-          analyzerServerCsProjResourcePath,
-          channel!
-        ))
-      ) {
-        await alertUser(
-          `Something went wrong trying to create analyzer server, check output for more information`,
-          "error"
-        );
-
-        return;
-      }
-
-      disposeTerminals();
-      setupAndRunTerminals();
-
-      const isAnalyzerServerReady = waitForAnalyzerServerReady(channel!);
-
-      const { error, document } = await openTextDocument(playgroundFilePath);
-      if (error) {
-        await alertUser(
-          "It went wrong opening the file, look in output",
-          "error"
-        );
-
-        return;
-      }
-
-      if (!(await isAnalyzerServerReady)) {
-        disposeTerminals();
-        await alertUser(
-          `Something went wrong trying to starting analyzer server, check output for more information`,
-          "error"
-        );
-
-        return;
-      }
-
-      addPlaygroundToWorkspace();
-
-      alertUser(
-        `Succesfully created and launched a playground at ${playgroundFilePath}`,
-        "success"
-      );
-    }
+    playCommand
   );
 
+  context.subscriptions.push(inlayHintsDisposable);
   context.subscriptions.push(playDisposable);
   context.subscriptions.push(stopDisposable);
 }
 
-async function openTextDocument(filePath: string): Promise<{error: Error | undefined, document: vscode.TextDocument | undefined}> {
+async function stopCommand() {
+  await AnalyzerConnectionManager.stopConnection();
+  AnalyzerConnectionManager.dispose();
+
+  disposeTerminals();
+  removePlaygroundFromWorkspace();
+}
+
+async function playCommand() {
+  disposeTerminals();
+
+  const success = await createCsharp(playgroundDirPath, channel!);
+
+  if (!success) {
+    await alertUser(
+      "It went wrong creating the project, look in output",
+      "error"
+    );
+    return;
+  }
+
+  if (
+    !(await tryCreateAanalyzerServer(
+      analyzerServerResourcePath,
+      analyzerServerCsProjResourcePath,
+      channel!
+    ))
+  ) {
+    await alertUser(
+      `Something went wrong trying to create analyzer server, check output for more information`,
+      "error"
+    );
+
+    return;
+  }
+
+  setupAndRunTerminals();
+
+  const isAnalyzerServerReady = waitForAnalyzerServerReady(channel!);
+
+  const { error, document } = await openTextDocument(playgroundFilePath);
+  if (error) {
+    await alertUser("It went wrong opening the file, look in output", "error");
+    return;
+  }
+
+  if (!(await isAnalyzerServerReady)) {
+    disposeTerminals();
+    await alertUser(
+      `Something went wrong trying to starting analyzer server, check output for more information`,
+      "error"
+    );
+
+    return;
+  }
+
+  if (connection?.state === signalR.HubConnectionState.Disconnected) {
+    try {
+      await connection.start();
+    } catch (error) {
+      await alertUser(
+        `Something went wrong trying to connect to analyzer server, check output for more information`,
+        "error"
+      );
+      return;
+    }
+  }
+
+  if (!isPlaygroundInWorkspace()) {
+    addPlaygroundToWorkspace();
+  }
+
+  alertUser(
+    `Succesfully created and launched a playground at ${playgroundFilePath}`,
+    "success"
+  );
+}
+
+async function openTextDocument(filePath: string): Promise<{
+  error: Error | undefined;
+  document: vscode.TextDocument | undefined;
+}> {
   let document: vscode.TextDocument | undefined;
   try {
     const uri = vscode.Uri.file(filePath);
@@ -183,7 +193,7 @@ async function openTextDocument(filePath: string): Promise<{error: Error | undef
     return { error: new Error(String(error)), document };
   }
 
-  return {error: undefined, document };
+  return { error: undefined, document };
 }
 
 function addPlaygroundToWorkspace(): boolean {
@@ -499,12 +509,17 @@ class PlaygroundInlayHintsProvider implements vscode.InlayHintsProvider {
   }
 }
 
-vscode.workspace.onDidCloseTextDocument((document) => {
+vscode.workspace.onDidChangeWorkspaceFolders(async (event) => {
   // if document.uri.path === path of playground file, shut down connection to analyzer server
-});
-vscode.workspace.onDidChangeWorkspaceFolders((document) => {
-  // if document.uri.path === path of playground file, shut down connection to analyzer server
-  console.log(document);
+  if (
+    event.removed &&
+    !isPlaygroundInWorkspace() &&
+    !(await isAnalyzerServerActive(channel!))
+  ) {
+    AnalyzerConnectionManager.stopConnection();
+    AnalyzerConnectionManager.dispose();
+    disposeTerminals();
+  }
 });
 
 vscode.workspace.onDidSaveTextDocument(async (document) => {

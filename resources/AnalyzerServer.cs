@@ -7,7 +7,6 @@ using Microsoft.CodeAnalysis.CSharp.Syntax;
 using Microsoft.CodeAnalysis.Scripting;
 using Newtonsoft.Json;
 
-// Setup minimal api and singalR
 var builder = WebApplication.CreateBuilder(args);
 
 builder.Services.AddSignalR();
@@ -24,6 +23,8 @@ builder.Services.AddCors(options =>
 
 builder.Services.AddOutputCache();
 builder.Services.AddScoped<IAnalyzer, Analyzer>();
+builder.Services.AddScoped<ITreeWalker, TreeWalker>();
+builder.Services.AddScoped<IConsoleOutRewriter, ConsoleOutRewriter>();
 
 var app = builder.Build();
 
@@ -38,11 +39,13 @@ app.MapGet("/alive", () =>
 })
 .CacheOutput();
 
-var signalR = app.Services.GetRequiredService<IHubContext<AnalyzerHub>>();
-
 app.Run();
 
+
+// -- Types --
 record AnalyzedDataItem(string Line, object Value);
+
+record SyntaxInfo(string VariableName, int LineIndex);
 
 interface IAnalyzer
 {
@@ -53,41 +56,42 @@ interface ITreeWalker
 {
     void Visit(SyntaxNode? node);
     List<SyntaxInfo> Results { get; }
+    void SetSemanticModel(SemanticModel semanticModel);
 }
 
-class Analyzer() : IAnalyzer
+interface IConsoleOutRewriter
 {
-    // private const int retryCount = 20;
+    SyntaxNode? Visit(SyntaxNode? node);
+}
+
+
+class Analyzer(
+    ITreeWalker treeWalker,
+    IConsoleOutRewriter consoleOutRewriter)
+    : IAnalyzer
+{
     private readonly ScriptOptions ScriptOptions = ScriptOptions.Default
         .WithReferences(
-            MetadataReference.CreateFromFile(typeof(object).Assembly.Location),
-            MetadataReference.CreateFromFile(typeof(Console).Assembly.Location),
-            MetadataReference.CreateFromFile(typeof(Task).Assembly.Location),
-            MetadataReference.CreateFromFile(typeof(Enumerable).Assembly.Location),
-            MetadataReference.CreateFromFile(typeof(System.Runtime.CompilerServices.DynamicAttribute).Assembly.Location),
-            MetadataReference.CreateFromFile(typeof(ValueTuple<>).Assembly.Location),
-            MetadataReference.CreateFromFile(typeof(Console).Assembly.Location)
+            Statics.ScriptOtionReferences
         )
         .WithImports(
-            "System",
-            "System.Collections.Generic",
-            "System.Collections",
-            "System.Linq",
-            "System.Threading.Tasks",
-            "System.IO",
-            "System.Console",
-            "System.Linq",
-            "System.Net",
-            "System.Threading",
-            "System.Threading.Tasks"
+            Statics.ScriptOptionImports
         );
 
     public async Task<List<AnalyzedDataItem>> Analyze(string code)
     {
         List<AnalyzedDataItem> analyzedData = [];
 
+        if (code is null)
+        {
+            return analyzedData;
+        }
+
         var syntaxTree = CSharpSyntaxTree.ParseText(code);
         var root = syntaxTree.GetCompilationUnitRoot();
+
+        var lines = code.Split('\n');
+        var runCodeTask = RunModifiedCodeAsync(root, lines);
 
         var compilation = CSharpCompilation.Create("Analysis")
             .AddReferences(
@@ -96,65 +100,74 @@ class Analyzer() : IAnalyzer
             .AddSyntaxTrees(syntaxTree);
 
         var semanticModel = compilation.GetSemanticModel(syntaxTree);
+        treeWalker.SetSemanticModel(semanticModel);
+        treeWalker.Visit(root);
 
-        var walker = new TreeWalker(semanticModel);
-        walker.Visit(root);
+        var (state, writeLines) = await runCodeTask;
 
-        // Modifiera syntaxträdet
-        var rewriter = new WriteLineRewriter();
-        var newRoot = rewriter.Visit(root);
-
-        var fullCode = newRoot.ToFullString();
-        var newCode = fullCode += Statics.WriteLineAdjusterMethod;
-
-        // Omdirigera Console.Out
-        var originalOut = Console.Out;
-        var captureWriter = new CaptureTextWriter();
-        Console.SetOut(captureWriter);
-
-        ScriptState<object>? scriptState = null;
-
-        var (error, result) = await Statics.TryCatch(async () =>
-            await CSharpScript.RunAsync(
-                newCode,
-                ScriptOptions
-            )
-        );
-
-        if (error is not null)
+        if (state is null)
         {
-            System.Console.WriteLine(error.Message);
             return analyzedData;
         }
 
-        scriptState = result;
+        var variables = state.Variables.ToDictionary(x => x.Name, x => (x.Type, x.Value));
 
-        var variables = scriptState!.Variables.ToDictionary(x => x.Name, x => x.Value);
-        var lines = code!.Split('\n');
-
-        foreach (var syntaxInfo in walker.Results)
+        foreach (var syntaxInfo in treeWalker.Results)
         {
-            if (!variables.TryGetValue(syntaxInfo.VariableName, out var value))
+            if (!variables.TryGetValue(syntaxInfo.VariableName, out var variable)
+                || variable.Type.IsSubclassOf(typeof(Delegate)))
             {
                 continue;
             }
 
-            analyzedData.Add(new(lines[syntaxInfo.LineIndex], value));
+            analyzedData.Add(new(lines[syntaxInfo.LineIndex], variable.Value));
         }
-
-        // Återställ Console.Out
-        Console.SetOut(originalOut);
-
-        // Visa utdatan
-        var writeLines = captureWriter
-            .Lines.
-            Select(x => new AnalyzedDataItem(lines[Statics.GetWriteLineLineIndex(x)], Statics.GetWriteLineValue(x)));
 
         analyzedData.AddRange(writeLines);
 
         return analyzedData;
     }
 
+    private async Task<(ScriptState<object>? state, AnalyzedDataItem[] dataItems)> RunModifiedCodeAsync(
+        CompilationUnitSyntax root,
+        string[] lines)
+    {
+
+        var modifiedRoot = consoleOutRewriter.Visit(root);
+        if (modifiedRoot is null)
+        {
+            return (null, []);
+        }
+
+        var fullCode = modifiedRoot.ToFullString();
+        var modifiedCode = fullCode += Statics.WriteLineAdjuster;
+
+        var originalOut = Console.Out;
+        using var consoleCapturer = new ConsoleCapturer();
+        Console.SetOut(consoleCapturer);
+
+        ScriptState<object>? scriptState;
+        try
+        {
+            scriptState = await CSharpScript.RunAsync(
+                modifiedCode,
+                ScriptOptions
+            );
+        }
+        catch
+        {
+            return (null, []);
+        }
+
+        Console.SetOut(originalOut);
+
+        var capturedWritelines = consoleCapturer
+            .Lines
+            .Select(x => new AnalyzedDataItem(lines[Statics.GetWriteLineLineIndex(x)], Statics.GetWriteLineValue(x)))
+            .ToArray();
+
+        return (scriptState!, capturedWritelines ?? []);
+    }
 }
 
 static class Statics
@@ -173,11 +186,35 @@ static class Statics
         "Write"
     ];
 
-    public const string WriteLineAdjusterMethod = @"
+    public static readonly string[] ScriptOptionImports = [
+        "System",
+        "System.Collections.Generic",
+        "System.Collections",
+        "System.Linq",
+        "System.Threading.Tasks",
+        "System.IO",
+        "System.Console",
+        "System.Linq",
+        "System.Net",
+        "System.Threading",
+        "System.Threading.Tasks"
+    ];
 
-public static class InstrumentationHelper
+    public static readonly PortableExecutableReference[] ScriptOtionReferences = [
+        MetadataReference.CreateFromFile(typeof(object).Assembly.Location),
+        MetadataReference.CreateFromFile(typeof(Console).Assembly.Location),
+        MetadataReference.CreateFromFile(typeof(Task).Assembly.Location),
+        MetadataReference.CreateFromFile(typeof(Enumerable).Assembly.Location),
+        MetadataReference.CreateFromFile(typeof(System.Runtime.CompilerServices.DynamicAttribute).Assembly.Location),
+        MetadataReference.CreateFromFile(typeof(ValueTuple<>).Assembly.Location),
+        MetadataReference.CreateFromFile(typeof(Console).Assembly.Location)
+    ];
+
+    public const string WriteLineAdjuster = @"
+
+public static class WriteLineAdjuster81927381273916428631286418926491624123123
 {
-    public static void InstrumentedWriteLine(int lineNumber, object value)
+    public static void AdjustWriteLine(int lineNumber, object value)
     {
         Console.WriteLine($""{lineNumber}:{value}"");
     }
@@ -207,36 +244,15 @@ public static class InstrumentationHelper
 
         return num;
     }
-
-    public static (Exception? exception, TResult? result) TryCatch<TResult>(Func<TResult> func)
-    {
-        try
-        {
-            var result = func();
-            return (null, result);
-        }
-        catch (System.Exception ex)
-        {
-            return (ex, default);
-        }
-    }
-    public static async Task<(Exception? exception, TResult? result)> TryCatch<TResult>(Func<Task<TResult>> func)
-    {
-        try
-        {
-            var result = await func();
-            return (null, result);
-        }
-        catch (System.Exception ex)
-        {
-            return (ex, default);
-        }
-    }
 }
 
-class TreeWalker(SemanticModel semanticModel) : CSharpSyntaxWalker, ITreeWalker
+class TreeWalker() : CSharpSyntaxWalker, ITreeWalker
 {
+    private SemanticModel? _semanticModel;
     public List<SyntaxInfo> Results { get; } = [];
+
+    public void SetSemanticModel(SemanticModel semanticModel)
+        => _semanticModel = semanticModel;
 
     public override void VisitLocalDeclarationStatement(LocalDeclarationStatementSyntax node)
     {
@@ -244,7 +260,7 @@ class TreeWalker(SemanticModel semanticModel) : CSharpSyntaxWalker, ITreeWalker
 
         foreach (var variable in node.Declaration.Variables)
         {
-            if (semanticModel.GetDeclaredSymbol(variable) is not ILocalSymbol localSymbol)
+            if (_semanticModel.GetDeclaredSymbol(variable) is not ILocalSymbol localSymbol)
             {
                 continue;
             }
@@ -257,7 +273,7 @@ class TreeWalker(SemanticModel semanticModel) : CSharpSyntaxWalker, ITreeWalker
 
     public override void VisitAssignmentExpression(AssignmentExpressionSyntax node)
     {
-        if (semanticModel.GetSymbolInfo(node.Left).Symbol is ILocalSymbol localSymbol)
+        if (_semanticModel.GetSymbolInfo(node.Left).Symbol is ILocalSymbol localSymbol)
         {
             Results.Add(new(localSymbol.Name, Statics.GetNodeLineIndex(node)));
         }
@@ -268,7 +284,7 @@ class TreeWalker(SemanticModel semanticModel) : CSharpSyntaxWalker, ITreeWalker
     public override void VisitPrefixUnaryExpression(PrefixUnaryExpressionSyntax node)
     {
         if (node.Operand is ExpressionSyntax operand &&
-            semanticModel.GetSymbolInfo(operand).Symbol is ILocalSymbol operandLocal)
+            _semanticModel.GetSymbolInfo(operand).Symbol is ILocalSymbol operandLocal)
         {
             Results.Add(new(operandLocal.Name, Statics.GetNodeLineIndex(node)));
         }
@@ -279,36 +295,14 @@ class TreeWalker(SemanticModel semanticModel) : CSharpSyntaxWalker, ITreeWalker
     public override void VisitPostfixUnaryExpression(PostfixUnaryExpressionSyntax node)
     {
         if (node.Operand is ExpressionSyntax operand &&
-            semanticModel.GetSymbolInfo(operand).Symbol is ILocalSymbol operandLocal)
+            _semanticModel.GetSymbolInfo(operand).Symbol is ILocalSymbol operandLocal)
         {
             Results.Add(new(operandLocal.Name, Statics.GetNodeLineIndex(node)));
         }
 
         base.VisitPostfixUnaryExpression(node);
     }
-
-    public override void VisitForStatement(ForStatementSyntax node)
-    {
-        var lineIndex = Statics.GetNodeLineIndex(node);
-
-        foreach (var variable in node.Declaration?.Variables ?? [])
-        {
-            if (semanticModel.GetDeclaredSymbol(variable) is not ILocalSymbol localSymbol)
-            {
-                continue;
-            }
-
-            Results.Add(new(localSymbol.Name, lineIndex));
-        }
-
-        base.VisitForStatement(node);
-    }
-
-
-
 }
-
-record SyntaxInfo(string VariableName, int LineIndex);
 
 class AnalyzerHub(IAnalyzer analyzer) : Hub
 {
@@ -324,9 +318,8 @@ class AnalyzerHub(IAnalyzer analyzer) : Hub
     }
 }
 
-class WriteLineRewriter : CSharpSyntaxRewriter
+class ConsoleOutRewriter : CSharpSyntaxRewriter, IConsoleOutRewriter
 {
-
     public override SyntaxNode VisitInvocationExpression(InvocationExpressionSyntax node)
     {
         // Kontrollera om uttrycket är av typen MemberAccessExpressionSyntax
@@ -336,7 +329,7 @@ class WriteLineRewriter : CSharpSyntaxRewriter
             var className = GetFullName(memberAccess.Expression);
 
             // Kontrollera om det är WriteLine-metoden vi vill ersätta
-            if (Statics.WriteLineClassesToCheck.Contains(className) 
+            if (Statics.WriteLineClassesToCheck.Contains(className)
                 && Statics.WriteLineMethodsToCheck.Contains(methodName))
             {
                 var lineNumber = Statics.GetNodeLineIndex(node);
@@ -351,7 +344,7 @@ class WriteLineRewriter : CSharpSyntaxRewriter
                         SyntaxFactory.Literal(string.Empty)))
                     });
 
-                var newArguments = SyntaxFactory.ArgumentList(
+                var modifiedArguments = SyntaxFactory.ArgumentList(
                     SyntaxFactory.SeparatedList<ArgumentSyntax>(
                         new SyntaxNodeOrToken[]
                         {
@@ -363,49 +356,36 @@ class WriteLineRewriter : CSharpSyntaxRewriter
                         }
                     ));
 
-                var newInvocation = node.WithExpression(
+                var modifiedInvocation = node.WithExpression(
                     SyntaxFactory.MemberAccessExpression(
                         SyntaxKind.SimpleMemberAccessExpression,
-                        SyntaxFactory.IdentifierName("InstrumentationHelper"),
-                        SyntaxFactory.IdentifierName("InstrumentedWriteLine")))
-                    .WithArgumentList(newArguments);
+                        SyntaxFactory.IdentifierName("WriteLineAdjuster81927381273916428631286418926491624123123"),
+                        SyntaxFactory.IdentifierName("AdjustWriteLine")))
+                    .WithArgumentList(modifiedArguments);
 
-                return newInvocation;
+                return modifiedInvocation;
             }
         }
 
         return base.VisitInvocationExpression(node);
     }
 
-
-    private static string GetFullName(ExpressionSyntax expr)
-    {
-        if (expr is IdentifierNameSyntax identifier)
+    private static string GetFullName(ExpressionSyntax expressionSyntax)
+        => expressionSyntax switch
         {
-            return identifier.Identifier.Text;
-        }
-        else if (expr is QualifiedNameSyntax qualifiedName)
-        {
-            return GetFullName(qualifiedName.Left) + "." + qualifiedName.Right.Identifier.Text;
-        }
-        else if (expr is MemberAccessExpressionSyntax memberAccess)
-        {
-            return GetFullName(memberAccess.Expression) + "." + memberAccess.Name.Identifier.Text;
-        }
-        else if (expr is AliasQualifiedNameSyntax aliasQualifiedName)
-        {
-            return aliasQualifiedName.Alias.Identifier.Text + "::" + GetFullName(aliasQualifiedName.Name);
-        }
-        else
-        {
-            return expr.ToString();
-        }
-    }
-
+            IdentifierNameSyntax identifier
+                => identifier.Identifier.Text,
+            QualifiedNameSyntax qualified
+                => GetFullName(qualified.Left) + "." + qualified.Right.Identifier.Text,
+            MemberAccessExpressionSyntax memberAccess
+                => GetFullName(memberAccess.Expression) + "." + memberAccess.Name.Identifier.Text,
+            AliasQualifiedNameSyntax aliasQualifiedName
+                => aliasQualifiedName.Alias.Identifier.Text + "::" + GetFullName(aliasQualifiedName.Name),
+            _ => expressionSyntax.ToString()
+        };
 }
 
-// Klassen för att fånga upp konsolutskrifter
-class CaptureTextWriter : TextWriter
+class ConsoleCapturer : TextWriter
 {
     private readonly List<string?> _lines = [];
 
