@@ -64,7 +64,6 @@ interface IConsoleOutRewriter
     SyntaxNode? Visit(SyntaxNode? node);
 }
 
-
 class Analyzer(
     ITreeWalker treeWalker,
     IConsoleOutRewriter consoleOutRewriter)
@@ -90,7 +89,7 @@ class Analyzer(
         var syntaxTree = CSharpSyntaxTree.ParseText(code);
         var root = syntaxTree.GetCompilationUnitRoot();
 
-        var lines = code.Split('\n');
+        var lines = code.ReplaceLineEndings().Split('\n');
         var runCodeTask = RunModifiedCodeAsync(root, lines);
 
         var compilation = CSharpCompilation.Create("Analysis")
@@ -120,7 +119,7 @@ class Analyzer(
                 continue;
             }
 
-            analyzedData.Add(new(lines[syntaxInfo.LineIndex], variable.Value));
+            analyzedData.Add(new(lines[syntaxInfo.LineIndex].TrimEnd(), variable.Value));
         }
 
         analyzedData.AddRange(writeLines);
@@ -163,7 +162,7 @@ class Analyzer(
 
         var capturedWritelines = consoleCapturer
             .Lines
-            .Select(x => new AnalyzedDataItem(lines[Statics.GetWriteLineLineIndex(x)], Statics.GetWriteLineValue(x)))
+            .Select(x => new AnalyzedDataItem(lines[Statics.GetWriteLineLineIndex(x)].TrimEnd(), Statics.GetWriteLineValue(x)))
             .ToArray();
 
         return (scriptState!, capturedWritelines ?? []);

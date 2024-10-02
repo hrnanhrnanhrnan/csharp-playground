@@ -27,16 +27,13 @@ const playgroundFilePath = path
   .join(playgroundDirPath, "Program.cs")
   .toLowerCase();
 let connection: signalR.HubConnection | undefined;
+const maxServerRetries = 30;
 let channel: vscode.OutputChannel | undefined;
 let analyzerServerCsProjResourcePath: string = "";
 let analyzerServerResourcePath: string = "";
+let analyzerWelcomeMessageResourcePath: string = "";
 const analyzerServerTerminalName = "Analyzer-runner";
 const playgorundRunnerTerminalName = "Playground-runner";
-const helloMessage = `// Thank you for using "${extensionName}"
-// Make sure to have the Editor > Inlay Hints: Enabled set to "true" in your settings 
-// to get inlay values of your global variables and stuff written to the console
-
-Console.WriteLine("Hello Playground!");`;
 
 // This method is called when your extension is activated
 // Your extension is activated the very first time the command is executed
@@ -57,6 +54,12 @@ export async function activate(context: vscode.ExtensionContext) {
     "resources",
     "AnalyzerServer.cs"
   );
+  analyzerWelcomeMessageResourcePath = path.join(
+    context.extensionPath,
+    "resources",
+    "WelcomeMessage.cs"
+  );
+
   // Setup output channel
   channel = vscode.window.createOutputChannel(extensionName);
 
@@ -107,72 +110,82 @@ async function stopCommand() {
 }
 
 async function playCommand() {
-  disposeTerminals();
+  return vscode.window.withProgress(
+    {
+      location: vscode.ProgressLocation.Notification,
+      cancellable: false,
+      title: `${extensionName}: Setting up and running...`,
+    },
+    async (progress, token) => {
+      disposeTerminals();
 
-  const success = await createCsharp(playgroundDirPath, channel!);
+      const success = await createCsharp(playgroundDirPath, channel!);
 
-  if (!success) {
-    await alertUser(
-      "It went wrong creating the project, look in output",
-      "error"
-    );
-    return;
-  }
+      if (!success) {
+        alertUser(
+          "It went wrong creating the project, look in output",
+          "error"
+        );
+        return;
+      }
 
-  if (
-    !(await tryCreateAanalyzerServer(
-      analyzerServerResourcePath,
-      analyzerServerCsProjResourcePath,
-      channel!
-    ))
-  ) {
-    await alertUser(
-      `Something went wrong trying to create analyzer server, check output for more information`,
-      "error"
-    );
+      if (
+        !(await tryCreateAanalyzerServer(
+          analyzerServerResourcePath,
+          analyzerServerCsProjResourcePath,
+          channel!
+        ))
+      ) {
+        alertUser(
+          `Something went wrong trying to create analyzer server, check output for more information`,
+          "error"
+        );
 
-    return;
-  }
+        return;
+      }
 
-  setupAndRunTerminals();
+      setupAndRunTerminals();
 
-  const isAnalyzerServerReady = waitForAnalyzerServerReady(channel!);
+      const isServerReadyPromise = waitForAnalyzerServerReady(channel!);
 
-  const { error, document } = await openTextDocument(playgroundFilePath);
-  if (error) {
-    await alertUser("It went wrong opening the file, look in output", "error");
-    return;
-  }
+      const { error, document } = await openTextDocument(playgroundFilePath);
+      if (error) {
+        alertUser("It went wrong opening the file, look in output", "error");
+        return;
+      }
 
-  if (!(await isAnalyzerServerReady)) {
-    disposeTerminals();
-    await alertUser(
-      `Something went wrong trying to starting analyzer server, check output for more information`,
-      "error"
-    );
+      const isServerReady = await isServerReadyPromise;
+      if (!isServerReady) {
+        disposeTerminals();
+        alertUser(
+          `Something went wrong trying to starting analyzer server, check output for more information`,
+          "error"
+        );
 
-    return;
-  }
+        return;
+      }
 
-  if (connection?.state === signalR.HubConnectionState.Disconnected) {
-    try {
-      await connection.start();
-    } catch (error) {
-      await alertUser(
-        `Something went wrong trying to connect to analyzer server, check output for more information`,
-        "error"
+      if (connection?.state === signalR.HubConnectionState.Disconnected) {
+        try {
+          await connection.start();
+        } catch (error) {
+          alertUser(
+            `Something went wrong trying to connect to analyzer server, check output for more information`,
+            "error"
+          );
+          return;
+        }
+      }
+
+      if (!isPlaygroundInWorkspace()) {
+        addPlaygroundToWorkspace();
+      }
+
+      alertUser(
+        `Succesfully created and launched a playground at ${playgroundFilePath}`,
+        "success"
       );
-      return;
     }
-  }
-
-  if (!isPlaygroundInWorkspace()) {
-    addPlaygroundToWorkspace();
-  }
-
-  alertUser(
-    `Succesfully created and launched a playground at ${playgroundFilePath}`,
-    "success"
   );
 }
 
@@ -267,24 +280,11 @@ async function createCsharp(
 
   return (
     (await runExecCommand("dotnet new console --force", dirPath, channel)) &&
-    (await writeHelloMessage(dirPath, channel))
+    (await safeCopyFile(
+      analyzerWelcomeMessageResourcePath,
+      path.join(dirPath, "Program.cs")
+    ))
   );
-}
-
-async function writeHelloMessage(
-  filePath: string,
-  channel: vscode.OutputChannel
-): Promise<boolean> {
-  try {
-    await writeFile(path.join(filePath, "Program.cs"), helloMessage, {
-      encoding: "utf-8",
-    });
-  } catch (error) {
-    channel.appendLine(`Error occured: ${error}`);
-    return false;
-  }
-
-  return true;
 }
 
 async function runExecCommand(
@@ -389,16 +389,16 @@ async function tryCreateAanalyzerServer(
   return true;
 }
 
-async function alertUser(message: string, type: "error" | "success") {
+function alertUser(message: string, type: "error" | "success") {
   const alertMessage = `${extensionName}: 
           ${message}`;
 
   if (type === "error") {
-    await vscode.window.showErrorMessage(alertMessage);
+    vscode.window.showErrorMessage(alertMessage);
     return;
   }
 
-  await vscode.window.showInformationMessage(alertMessage);
+  vscode.window.showInformationMessage(alertMessage);
 }
 
 type AnalyzedDataItem = {
@@ -482,7 +482,9 @@ class PlaygroundInlayHintsProvider implements vscode.InlayHintsProvider {
       );
       console.log(`Processing line ${i}: "${line.text}"`);
 
-      const match = this.analyzerData.find((x) => x.Line === line.text);
+      const match = this.analyzerData.find(
+        (x) => x.Line.trim() === line.text.trim()
+      );
 
       if (match) {
         const position = new vscode.Position(i, line.text.length);
@@ -533,17 +535,19 @@ vscode.workspace.onDidSaveTextDocument(async (document) => {
 
 async function waitForAnalyzerServerReady(channel: vscode.OutputChannel) {
   let tries = 0;
-  const maxRetries = 10;
 
   return new Promise<boolean>((resolve, reject) => {
     const checkServerAlive = async () => {
-      console.log(`Trying analyzer server, try ${tries} of ${maxRetries}`);
+      console.log(
+        `Trying analyzer server, try ${tries} of ${maxServerRetries}`
+      );
       if (await isAnalyzerServerActive(channel)) {
         resolve(true);
+        return;
       }
 
       tries++;
-      if (tries < maxRetries) {
+      if (tries <= maxServerRetries) {
         setTimeout(checkServerAlive, 1000);
       } else {
         reject(false);
