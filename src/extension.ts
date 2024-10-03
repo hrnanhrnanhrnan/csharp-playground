@@ -6,7 +6,7 @@ import * as os from "os";
 import { existsSync } from "fs";
 import path from "path";
 import { promisify } from "util";
-import { copyFile, mkdir, writeFile } from "fs/promises";
+import { copyFile, mkdir } from "fs/promises";
 import * as signalR from "@microsoft/signalr";
 
 const execPromise = promisify(exec);
@@ -113,12 +113,20 @@ async function playCommand() {
   return vscode.window.withProgress(
     {
       location: vscode.ProgressLocation.Notification,
-      cancellable: false,
-      title: `${extensionName}: Setting up and running...`,
+      cancellable: true,
+      title: `${extensionName}: Play -> `,
     },
     async (progress, token) => {
+      token.onCancellationRequested(() => {
+        disposeTerminals();
+        AnalyzerConnectionManager.stopConnection();
+        AnalyzerConnectionManager.dispose();
+        removePlaygroundFromWorkspace();
+      });
+
       disposeTerminals();
 
+      progress.report({ message: "Setting up the playgorund..." });
       const success = await createCsharp(playgroundDirPath, channel!);
 
       if (!success) {
@@ -129,6 +137,7 @@ async function playCommand() {
         return;
       }
 
+      progress.report({ message: "Setting up the analyzer server..." });
       if (
         !(await tryCreateAanalyzerServer(
           analyzerServerResourcePath,
@@ -146,7 +155,8 @@ async function playCommand() {
 
       setupAndRunTerminals();
 
-      const isServerReadyPromise = waitForAnalyzerServerReady(channel!);
+      progress.report({ message: "Waiting for analyzer server..." });
+      const isServerReadyPromise = waitForAnalyzerServerReady(channel!, token);
 
       const { error, document } = await openTextDocument(playgroundFilePath);
       if (error) {
@@ -177,6 +187,7 @@ async function playCommand() {
         }
       }
 
+      progress.report({ message: "Setting up workspace..." });
       if (!isPlaygroundInWorkspace()) {
         addPlaygroundToWorkspace();
       }
@@ -533,7 +544,7 @@ vscode.workspace.onDidSaveTextDocument(async (document) => {
   await connection?.invoke("AnalyzeCode", document.getText());
 });
 
-async function waitForAnalyzerServerReady(channel: vscode.OutputChannel) {
+async function waitForAnalyzerServerReady(channel: vscode.OutputChannel, token: vscode.CancellationToken) {
   let tries = 0;
 
   return new Promise<boolean>((resolve, reject) => {
@@ -541,6 +552,11 @@ async function waitForAnalyzerServerReady(channel: vscode.OutputChannel) {
       console.log(
         `Trying analyzer server, try ${tries} of ${maxServerRetries}`
       );
+      if (token.isCancellationRequested) {
+        console.log("Cancellation has been requested, cancelling checking analyzer server");
+        return;
+      }
+
       if (await isAnalyzerServerActive(channel)) {
         resolve(true);
         return;
