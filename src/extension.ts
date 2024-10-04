@@ -8,83 +8,59 @@ import path from "path";
 import { promisify } from "util";
 import { copyFile, mkdir } from "fs/promises";
 import * as signalR from "@microsoft/signalr";
+import { AnalyzerConnectionManager } from "./AnalyzerConnectionManager";
+import { PlaygroundInlayHintsProvider } from "./PlaygroundInlayHintsProvider";
 
 const execPromise = promisify(exec);
 const extensionName = "csharp-playground";
-const homeDir = null ?? os.homedir();
+const homeDir = os.homedir();
 const extensionDirName = `.csharp_playground`;
-const analyzerServerAddress = "http://localhost:5140";
-const hubAddress = `${analyzerServerAddress}/hub`;
-const analyzerServerDirPath = path.join(homeDir, extensionDirName, "analyzer");
-const analyzerServerFilePath = path.join(analyzerServerDirPath, "Program.cs");
-const analyzerServerCsProjFilePath = path.join(
-  analyzerServerDirPath,
-  "analyzer.csproj"
+const analyzerServerDirPath = path.resolve(
+  path.join(homeDir, extensionDirName, "analyzer")
 );
-const playgroundDirPath = path.join(homeDir, extensionDirName, "playground");
+const analyzerServerFilePath = path.resolve(
+  path.join(analyzerServerDirPath, "Program.cs")
+);
+const analyzerServerCsProjFilePath = path.resolve(
+  path.join(analyzerServerDirPath, "analyzer.csproj")
+);
+const playgroundDirPath = path.resolve(
+  path.join(homeDir, extensionDirName, "playground")
+);
 const playgroundDirUri = vscode.Uri.file(playgroundDirPath);
-const playgroundFilePath = path
-  .join(playgroundDirPath, "Program.cs")
-  .toLowerCase();
-let connection: signalR.HubConnection | undefined;
+const playgroundFilePath = path.resolve(
+  path.join(playgroundDirPath, "Program.cs")
+);
 const maxServerRetries = 30;
-let channel: vscode.OutputChannel | undefined;
+const analyzerServerTerminalName = "Analyzer-runner";
+const playgorundRunnerTerminalName = "Playground-runner";
+let isDotnetInstalled = false;
+const defaultPort = 5140;
+const platform = os.platform();
+const shell = platform === "win32" ? "powershell.exe" : "/bin/bash";
+let analyzerServerAddress = "";
+let hubAddress = "";
 let analyzerServerCsProjResourcePath: string = "";
 let analyzerServerResourcePath: string = "";
 let analyzerWelcomeMessageResourcePath: string = "";
-const analyzerServerTerminalName = "Analyzer-runner";
-const playgorundRunnerTerminalName = "Playground-runner";
+let connection: signalR.HubConnection | undefined;
+let channel: vscode.OutputChannel | undefined;
 
 // This method is called when your extension is activated
 // Your extension is activated the very first time the command is executed
 export async function activate(context: vscode.ExtensionContext) {
   // Use the console to output diagnostic information (console.log) and errors (console.error)
   // This line of code will only be executed once when your extension is activated
-  console.log(
-    `Congratulations, your extension "${extensionName}" is now active!`
-  );
-
-  analyzerServerCsProjResourcePath = path.join(
-    context.extensionPath,
-    "resources",
-    "AnalyzerServerCsProjFile.txt"
-  );
-  analyzerServerResourcePath = path.join(
-    context.extensionPath,
-    "resources",
-    "AnalyzerServer.cs"
-  );
-  analyzerWelcomeMessageResourcePath = path.join(
-    context.extensionPath,
-    "resources",
-    "WelcomeMessage.cs"
-  );
+  console.log(`The "${extensionName}" extension is now active!`);
 
   // Setup output channel
   channel = vscode.window.createOutputChannel(extensionName);
 
-  // Setup analyzer server connection manager
-  connection = AnalyzerConnectionManager.getConnection(hubAddress);
+  isDotnetInstalled = await isDotnetAvailable();
 
-  if (
-    (await isAnalyzerServerActive(channel!)) &&
-    connection!.state === signalR.HubConnectionState.Disconnected
-  ) {
-    try {
-      await connection!.start();
-    } catch (error) {
-      console.log(error);
-    }
+  if (isDotnetInstalled) {
+    await runSetup(context);
   }
-
-  // Setup inlayhints
-  const inlayHintsProvider = new PlaygroundInlayHintsProvider();
-  const inlayHintsDisposable = vscode.languages.registerInlayHintsProvider(
-    { scheme: "file", language: "csharp" },
-    inlayHintsProvider
-  );
-
-  AnalyzerConnectionManager.setInlayHintsProvider(inlayHintsProvider);
 
   const stopDisposable = vscode.commands.registerCommand(
     `${extensionName}.stop`,
@@ -96,20 +72,69 @@ export async function activate(context: vscode.ExtensionContext) {
     playCommand
   );
 
-  context.subscriptions.push(inlayHintsDisposable);
   context.subscriptions.push(playDisposable);
   context.subscriptions.push(stopDisposable);
 }
 
-async function stopCommand() {
-  await AnalyzerConnectionManager.stopConnection();
-  AnalyzerConnectionManager.dispose();
+async function runSetup(context: vscode.ExtensionContext) {
+  analyzerServerAddress = getAnalyzerServerAddress();
+  hubAddress = `${analyzerServerAddress}/hub`;
 
-  disposeTerminals();
-  removePlaygroundFromWorkspace();
+  analyzerServerCsProjResourcePath = path.resolve(
+    path.join(
+      context.extensionPath,
+      "resources",
+      "AnalyzerServerCsProjFile.txt"
+    )
+  );
+  analyzerServerResourcePath = path.resolve(
+    path.join(context.extensionPath, "resources", "AnalyzerServer.cs")
+  );
+  analyzerWelcomeMessageResourcePath = path.resolve(
+    path.join(context.extensionPath, "resources", "WelcomeMessage.cs")
+  );
+
+  // Setup analyzer server connection manager
+  connection = AnalyzerConnectionManager.getConnection(hubAddress);
+
+  if (
+    (await isAnalyzerServerActive()) &&
+    connection.state === signalR.HubConnectionState.Disconnected
+  ) {
+    try {
+      await connection.start();
+    } catch (error) {
+      printErrorToChannel(
+        "Following error occurred when trying to start hubconnection",
+        error
+      );
+    }
+  }
+
+  // Setup inlayhints
+  const inlayHintsProvider = new PlaygroundInlayHintsProvider();
+  const inlayHintsDisposable = vscode.languages.registerInlayHintsProvider(
+    { scheme: "file", language: "csharp" },
+    inlayHintsProvider
+  );
+
+  AnalyzerConnectionManager.setInlayHintsProvider(inlayHintsProvider);
+  context.subscriptions.push(inlayHintsDisposable);
+}
+
+async function stopCommand() {
+  shutdown();
 }
 
 async function playCommand() {
+  if (!isDotnetInstalled) {
+    alertUser(
+      "Cant find that .NET SDK is installed or that PATH is accessible",
+      "error"
+    );
+    return;
+  }
+
   return vscode.window.withProgress(
     {
       location: vscode.ProgressLocation.Notification,
@@ -118,16 +143,17 @@ async function playCommand() {
     },
     async (progress, token) => {
       token.onCancellationRequested(() => {
-        disposeTerminals();
-        AnalyzerConnectionManager.stopConnection();
-        AnalyzerConnectionManager.dispose();
-        removePlaygroundFromWorkspace();
+        shutdown();
       });
 
+      analyzerServerAddress = getAnalyzerServerAddress();
+      hubAddress = `${analyzerServerAddress}/hub`;
       disposeTerminals();
+      await AnalyzerConnectionManager.stopConnection();
+      connection = AnalyzerConnectionManager.getConnection(hubAddress);
 
       progress.report({ message: "Setting up the playgorund..." });
-      const success = await createCsharp(playgroundDirPath, channel!);
+      const success = await createCsharp(playgroundDirPath!);
 
       if (!success) {
         alertUser(
@@ -141,8 +167,7 @@ async function playCommand() {
       if (
         !(await tryCreateAanalyzerServer(
           analyzerServerResourcePath,
-          analyzerServerCsProjResourcePath,
-          channel!
+          analyzerServerCsProjResourcePath
         ))
       ) {
         alertUser(
@@ -156,7 +181,7 @@ async function playCommand() {
       setupAndRunTerminals();
 
       progress.report({ message: "Waiting for analyzer server..." });
-      const isServerReadyPromise = waitForAnalyzerServerReady(channel!, token);
+      const isServerReadyPromise = waitForAnalyzerServerReady(token);
 
       const { error, document } = await openTextDocument(playgroundFilePath);
       if (error) {
@@ -168,14 +193,14 @@ async function playCommand() {
       if (!isServerReady) {
         disposeTerminals();
         alertUser(
-          `Something went wrong trying to starting analyzer server, check output for more information`,
+          `Could not start Analyzer server, check output for more information`,
           "error"
         );
 
         return;
       }
 
-      if (connection?.state === signalR.HubConnectionState.Disconnected) {
+      if (connection.state === signalR.HubConnectionState.Disconnected) {
         try {
           await connection.start();
         } catch (error) {
@@ -200,6 +225,10 @@ async function playCommand() {
   );
 }
 
+function printErrorToChannel(message: string, error: unknown) {
+  channel?.appendLine(`${message}: ${(error as Error)?.message ?? error}`);
+}
+
 async function openTextDocument(filePath: string): Promise<{
   error: Error | undefined;
   document: vscode.TextDocument | undefined;
@@ -210,6 +239,7 @@ async function openTextDocument(filePath: string): Promise<{
     document = await vscode.workspace.openTextDocument(uri);
     await vscode.window.showTextDocument(document);
   } catch (error) {
+    printErrorToChannel(`Error occurred when trying to open file at "${filePath}"`, error);
     if (error instanceof Error) {
       return { error, document };
     }
@@ -245,11 +275,13 @@ function setupAndRunTerminals() {
   const playgroundTerminal = vscode.window.createTerminal({
     name: playgorundRunnerTerminalName,
     cwd: playgroundDirPath,
+    shellPath: shell,
   });
 
   const analyzerServerTerminal = vscode.window.createTerminal({
     name: analyzerServerTerminalName,
     cwd: analyzerServerDirPath,
+    shellPath: shell,
     location: {
       parentTerminal: playgroundTerminal,
     },
@@ -261,7 +293,7 @@ function setupAndRunTerminals() {
     `dotnet run -c Release --urls ${analyzerServerAddress} `
   );
 
-  analyzerServerTerminal.show();
+  analyzerServerTerminal.show(true);
 }
 
 function disposeTerminals() {
@@ -283,38 +315,31 @@ function isPlaygroundInWorkspace() {
   return playgroundWorkspaceFolder !== undefined;
 }
 
-async function createCsharp(
-  dirPath: string,
-  channel: vscode.OutputChannel
-): Promise<boolean> {
+async function createCsharp(dirPath: string): Promise<boolean> {
   await mkdir(dirPath, { recursive: true });
 
   return (
-    (await runExecCommand("dotnet new console --force", dirPath, channel)) &&
+    (await runExecCommand("dotnet new console --force", dirPath)) &&
     (await safeCopyFile(
       analyzerWelcomeMessageResourcePath,
-      path.join(dirPath, "Program.cs")
+      path.resolve(path.join(dirPath, "Program.cs"))
     ))
   );
 }
 
-async function runExecCommand(
-  command: string,
-  cwd: string,
-  channel: vscode.OutputChannel
-): Promise<boolean> {
+async function runExecCommand(command: string, cwd: string): Promise<boolean> {
   try {
-    const { stdout, stderr } = await execPromise(command, { cwd });
+    const { stdout, stderr } = await execPromise(command, { cwd, shell });
 
     if (stdout) {
-      channel.appendLine(stdout);
+      channel?.appendLine(stdout);
     }
 
     if (stderr) {
-      channel.appendLine(stderr);
+      channel?.appendLine(stderr);
     }
   } catch (error) {
-    channel.appendLine(`Error occured: ${error}`);
+    printErrorToChannel(`Error occurred when trying to run command "${command}"`, error);
     return false;
   }
 
@@ -322,29 +347,27 @@ async function runExecCommand(
 }
 
 // This method is called when your extension is deactivated
-export async function deactivate() {
-  await AnalyzerConnectionManager.stopConnection();
+export function deactivate() {
+  shutdown();
   AnalyzerConnectionManager.dispose();
-  disposeTerminals();
 }
 
-async function isAnalyzerServerActive(
-  channel: vscode.OutputChannel
-): Promise<boolean> {
+async function shutdown() {
+  disposeTerminals();
+  await AnalyzerConnectionManager.stopConnection();
+  removePlaygroundFromWorkspace();
+}
+
+async function isAnalyzerServerActive(): Promise<boolean> {
   try {
     const response = await fetch(`${analyzerServerAddress}/alive`);
 
     if (!response.ok) {
-      console.log("analyzer server responding with not ok");
+      channel?.appendLine(`Analyzer server responding with not ok. Message: ${await response.text()}`);
       return false;
     }
   } catch (error) {
-    channel.appendLine(
-      `Aanalyzer server is not running, following error occured: ${error}`
-    );
-    console.log(
-      `Aanalyzer server is not running, following error occured: ${error}`
-    );
+    printErrorToChannel("Error occurred when trying to check if Analyzer server is alive", error);
     return false;
   }
 
@@ -360,9 +383,7 @@ async function safeCopyFile(
     await mkdir(parentDir, { recursive: true });
     await copyFile(srcFilePath, destFilePath);
   } catch (error) {
-    channel!.appendLine(
-      `Could not copy file, following error occured: ${error}`
-    );
+    printErrorToChannel("Could not copy file, following error occured", error);
     return false;
   }
 
@@ -371,8 +392,7 @@ async function safeCopyFile(
 
 async function tryCreateAanalyzerServer(
   analyzerServerResourcePath: string,
-  analyzerServerProjFileResourcePath: string,
-  channel: vscode.OutputChannel
+  analyzerServerProjFileResourcePath: string
 ) {
   try {
     if (existsSync(analyzerServerFilePath)) {
@@ -380,11 +400,7 @@ async function tryCreateAanalyzerServer(
     }
 
     await mkdir(analyzerServerDirPath, { recursive: true });
-    await runExecCommand(
-      "dotnet new web --force",
-      analyzerServerDirPath,
-      channel
-    );
+    await runExecCommand("dotnet new web --force", analyzerServerDirPath);
 
     await safeCopyFile(
       analyzerServerProjFileResourcePath,
@@ -392,7 +408,7 @@ async function tryCreateAanalyzerServer(
     );
     await safeCopyFile(analyzerServerResourcePath, analyzerServerFilePath);
   } catch (error) {
-    channel.appendLine(`Error when trying to create analyzerServer: ${error}`);
+    printErrorToChannel("Error when trying to create and setup Analyzer server", error);
 
     return false;
   }
@@ -412,164 +428,84 @@ function alertUser(message: string, type: "error" | "success") {
   vscode.window.showInformationMessage(alertMessage);
 }
 
-type AnalyzedDataItem = {
-  Line: string;
-  Value: string;
-};
-
-class AnalyzerConnectionManager {
-  private static instance: signalR.HubConnection | null;
-  private static inlayHintsProvider: PlaygroundInlayHintsProvider | null = null;
-
-  public static setInlayHintsProvider(
-    inlayhintsProvider: PlaygroundInlayHintsProvider
-  ) {
-    this.inlayHintsProvider = inlayhintsProvider;
-  }
-
-  public static getConnection(serverAddress: string) {
-    if (!this.instance) {
-      this.instance = new signalR.HubConnectionBuilder()
-        .withUrl(serverAddress)
-        .withAutomaticReconnect()
-        .configureLogging(signalR.LogLevel.Debug)
-        .build();
-
-      this.instance.on("AnalyzedData", (data) => {
-        const analyzerData = JSON.parse(data);
-        AnalyzerConnectionManager.inlayHintsProvider?.setData(analyzerData);
-      });
-
-      this.instance.onreconnecting((error) => {
-        console.log(`Anslutningen försöker återansluta. Fel: ${error}`);
-      });
-
-      this.instance.onreconnected((connectionId) => {
-        console.log(
-          `Anslutningen har återanslutits. this.instance ID: ${connectionId}`
-        );
-      });
-
-      this.instance.onclose((error) => {
-        console.log("SignalR-anslutningen stängdes", error);
-        setTimeout(async () => await this.instance?.start(), 5000);
-      });
-    }
-
-    return this.instance;
-  }
-
-  public static stopConnection() {
-    return this.instance?.stop() || Promise.resolve();
-  }
-
-  public static dispose() {
-    this.instance = null;
-  }
-}
-
-class PlaygroundInlayHintsProvider implements vscode.InlayHintsProvider {
-  analyzerData: AnalyzedDataItem[] = [];
-
-  private _onDidChangeInlayHints = new vscode.EventEmitter<void>();
-  readonly onDidChangeInlayHints = this._onDidChangeInlayHints.event;
-
-  provideInlayHints(
-    document: vscode.TextDocument,
-    range: vscode.Range,
-    token: vscode.CancellationToken
-  ): vscode.ProviderResult<vscode.InlayHint[]> {
-    if (this.analyzerData.length === 0) {
-      return;
-    }
-
-    const hints: vscode.InlayHint[] = [];
-
-    for (let i = 0; i < document.lineCount; i++) {
-      const line = document.lineAt(i);
-      console.log(
-        "Current analyzerData:",
-        JSON.stringify(this.analyzerData, null, 2)
-      );
-      console.log(`Processing line ${i}: "${line.text}"`);
-
-      const match = this.analyzerData.find(
-        (x) => x.Line.trim() === line.text.trim()
-      );
-
-      if (match) {
-        const position = new vscode.Position(i, line.text.length);
-        const value = JSON.stringify(match.Value);
-        const hint = new vscode.InlayHint(
-          position,
-          value,
-          vscode.InlayHintKind.Type
-        );
-        hint.paddingLeft = hint.paddingRight = true;
-        hint.tooltip = JSON.stringify(match.Value, null, 4);
-
-        hints.push(hint);
-      }
-    }
-
-    return hints;
-  }
-
-  public setData(analyzerDataItems: AnalyzedDataItem[]) {
-    console.log("setData called with", analyzerDataItems);
-    this.analyzerData = analyzerDataItems;
-    this._onDidChangeInlayHints.fire();
-  }
-}
-
 vscode.workspace.onDidChangeWorkspaceFolders(async (event) => {
-  // if document.uri.path === path of playground file, shut down connection to analyzer server
-  if (
-    event.removed &&
-    !isPlaygroundInWorkspace() &&
-    !(await isAnalyzerServerActive(channel!))
-  ) {
-    AnalyzerConnectionManager.stopConnection();
-    AnalyzerConnectionManager.dispose();
-    disposeTerminals();
+  if (event.removed && !(await isAnalyzerServerActive())) {
+    shutdown();
   }
 });
 
 vscode.workspace.onDidSaveTextDocument(async (document) => {
-  // if document.uri.path === path of playground file, shut down connection to analyzer server
-  if (document.uri.fsPath.toLowerCase() !== playgroundFilePath.toLowerCase()) {
+  if (!equalPaths(document.uri.fsPath, playgroundFilePath)) {
     return;
   }
 
   await connection?.invoke("AnalyzeCode", document.getText());
 });
 
-async function waitForAnalyzerServerReady(channel: vscode.OutputChannel, token: vscode.CancellationToken) {
-  let tries = 0;
+async function waitForAnalyzerServerReady(token: vscode.CancellationToken) {
+  let tryCount = 0;
 
   return new Promise<boolean>((resolve, reject) => {
-    const checkServerAlive = async () => {
-      console.log(
-        `Trying analyzer server, try ${tries} of ${maxServerRetries}`
+    const checkIfServerAlive = async () => {
+      channel?.appendLine(
+        `Checking if Analyzer server is ready, try ${tryCount} of ${maxServerRetries}`
       );
       if (token.isCancellationRequested) {
-        console.log("Cancellation has been requested, cancelling checking analyzer server");
+        channel?.appendLine(
+          "Cancellation has been requested, cancelling checking analyzer server"
+        );
         return;
       }
 
-      if (await isAnalyzerServerActive(channel)) {
+      if (await isAnalyzerServerActive()) {
+        channel?.appendLine("Analyzer server is ready");
         resolve(true);
         return;
       }
 
-      tries++;
-      if (tries <= maxServerRetries) {
-        setTimeout(checkServerAlive, 1000);
+      tryCount++;
+      if (tryCount <= maxServerRetries) {
+        setTimeout(checkIfServerAlive, 1000);
       } else {
         reject(false);
       }
     };
 
-    checkServerAlive();
+    checkIfServerAlive();
   });
+}
+
+async function isDotnetAvailable() {
+  try {
+    channel?.appendLine("Checking .NET SDK is installed and that PATH accessible");
+    await execPromise("dotnet --version");
+  } catch (error) {
+    printErrorToChannel("Cant find that the .NET SDK is installed or that PATH is accessible", error);
+    return false;
+  }
+
+  return true;
+}
+
+function getConfigSettings(): ConfigSettings {
+  const config = vscode.workspace.getConfiguration(extensionName);
+
+  return {
+    analyzerServerPort: config.get<number>("analyzerServerPort") ?? defaultPort,
+  };
+}
+
+function getAnalyzerServerAddress() {
+  return `http://localhost:${getConfigSettings().analyzerServerPort}`;
+}
+
+function equalPaths(firstPath: string, secondPath: string) {
+  const firstPathNorm = path.resolve(firstPath);
+  const secodPathNorm = path.resolve(secondPath);
+
+  if (platform === "win32") {
+    return firstPathNorm.toLowerCase() === secodPathNorm.toLowerCase();
+  }
+
+  return firstPathNorm === secodPathNorm;
 }

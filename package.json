@@ -10,6 +10,13 @@
     "Other"
   ],
   "main": "./dist/extension.js",
+  "properties": {
+    "csharp-playground.analyzerServerPort": {
+        "type": "number",
+        "default": 5140,
+        "description": "Edit the port for the analyzer server to run at"
+    }
+  },
   "contributes": {
     "commands": [
       {

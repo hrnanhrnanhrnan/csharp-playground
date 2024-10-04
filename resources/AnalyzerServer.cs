@@ -41,7 +41,6 @@ app.MapGet("/alive", () =>
 
 app.Run();
 
-
 // -- Types --
 record AnalyzedDataItem(string Line, object Value);
 
@@ -80,11 +79,6 @@ class Analyzer(
     public async Task<List<AnalyzedDataItem>> Analyze(string code)
     {
         List<AnalyzedDataItem> analyzedData = [];
-
-        if (code is null)
-        {
-            return analyzedData;
-        }
 
         var syntaxTree = CSharpSyntaxTree.ParseText(code);
         var root = syntaxTree.GetCompilationUnitRoot();
