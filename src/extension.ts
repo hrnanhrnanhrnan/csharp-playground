@@ -58,9 +58,7 @@ export async function activate(context: vscode.ExtensionContext) {
 
   isDotnetInstalled = await isDotnetAvailable();
 
-  if (isDotnetInstalled) {
-    await runSetup(context);
-  }
+  await runSetup(context);
 
   const stopDisposable = vscode.commands.registerCommand(
     `${extensionName}.stop`,
@@ -78,7 +76,7 @@ export async function activate(context: vscode.ExtensionContext) {
 
 async function runSetup(context: vscode.ExtensionContext) {
   analyzerServerAddress = getAnalyzerServerAddress();
-  hubAddress = `${analyzerServerAddress}/hub`;
+  hubAddress = getAnalyzerServerHubAddress(analyzerServerAddress);
 
   analyzerServerCsProjResourcePath = path.resolve(
     path.join(
@@ -99,16 +97,13 @@ async function runSetup(context: vscode.ExtensionContext) {
 
   if (
     (await isAnalyzerServerActive()) &&
-    connection.state === signalR.HubConnectionState.Disconnected
+    connection.state === signalR.HubConnectionState.Disconnected &&
+    !(await tryStartAanalyzerHubConnection(connection))
   ) {
-    try {
-      await connection.start();
-    } catch (error) {
-      printErrorToChannel(
-        "Following error occurred when trying to start hubconnection",
-        error
-      );
-    }
+    alertUser(
+      "Something went wrong trying to start the Hub Connection to the Analyzer Server, check output for more information",
+      "error"
+    );
   }
 
   // Setup inlayhints
@@ -123,7 +118,7 @@ async function runSetup(context: vscode.ExtensionContext) {
 }
 
 async function stopCommand() {
-  shutdown();
+  return shutdown();
 }
 
 async function playCommand() {
@@ -147,15 +142,15 @@ async function playCommand() {
       });
 
       analyzerServerAddress = getAnalyzerServerAddress();
-      hubAddress = `${analyzerServerAddress}/hub`;
+      hubAddress = getAnalyzerServerHubAddress(analyzerServerAddress);
+
       disposeTerminals();
       await AnalyzerConnectionManager.stopConnection();
       connection = AnalyzerConnectionManager.getConnection(hubAddress);
 
       progress.report({ message: "Setting up the playgorund..." });
-      const success = await createCsharp(playgroundDirPath!);
 
-      if (!success) {
+      if (!(await createCsharp(playgroundDirPath!))) {
         alertUser(
           "It went wrong creating the project, look in output",
           "error"
@@ -165,7 +160,7 @@ async function playCommand() {
 
       progress.report({ message: "Setting up the analyzer server..." });
       if (
-        !(await tryCreateAanalyzerServer(
+        !(await tryCreateAnalyzerServer(
           analyzerServerResourcePath,
           analyzerServerCsProjResourcePath
         ))
@@ -199,17 +194,16 @@ async function playCommand() {
 
         return;
       }
-
-      if (connection.state === signalR.HubConnectionState.Disconnected) {
-        try {
-          await connection.start();
-        } catch (error) {
-          alertUser(
-            `Something went wrong trying to connect to analyzer server, check output for more information`,
-            "error"
-          );
-          return;
-        }
+      if (
+        connection.state === signalR.HubConnectionState.Disconnected &&
+        !(await tryStartAanalyzerHubConnection(connection))
+      ) {
+        await shutdown();
+        alertUser(
+          `Something went wrong trying to connect to analyzer server, check output for more information`,
+          "error"
+        );
+        return;
       }
 
       progress.report({ message: "Setting up workspace..." });
@@ -229,6 +223,23 @@ function printErrorToChannel(message: string, error: unknown) {
   channel?.appendLine(`${message}: ${(error as Error)?.message ?? error}`);
 }
 
+async function tryStartAanalyzerHubConnection(
+  connection: signalR.HubConnection
+) {
+  try {
+    await connection.start();
+  } catch (error) {
+    printErrorToChannel(
+      "Following error occurred when trying to start the Analyzer server",
+      error
+    );
+    await shutdown();
+    return false;
+  }
+
+  return true;
+}
+
 async function openTextDocument(filePath: string): Promise<{
   error: Error | undefined;
   document: vscode.TextDocument | undefined;
@@ -239,7 +250,10 @@ async function openTextDocument(filePath: string): Promise<{
     document = await vscode.workspace.openTextDocument(uri);
     await vscode.window.showTextDocument(document);
   } catch (error) {
-    printErrorToChannel(`Error occurred when trying to open file at "${filePath}"`, error);
+    printErrorToChannel(
+      `Error occurred when trying to open file at "${filePath}"`,
+      error
+    );
     if (error instanceof Error) {
       return { error, document };
     }
@@ -339,7 +353,10 @@ async function runExecCommand(command: string, cwd: string): Promise<boolean> {
       channel?.appendLine(stderr);
     }
   } catch (error) {
-    printErrorToChannel(`Error occurred when trying to run command "${command}"`, error);
+    printErrorToChannel(
+      `Error occurred when trying to run command "${command}"`,
+      error
+    );
     return false;
   }
 
@@ -354,7 +371,16 @@ export function deactivate() {
 
 async function shutdown() {
   disposeTerminals();
-  await AnalyzerConnectionManager.stopConnection();
+
+  try {
+    await AnalyzerConnectionManager.stopConnection();
+  } catch (error) {
+    printErrorToChannel(
+      "Following error occurred when trying to stop Analyzer connection manager",
+      error
+    );
+  }
+
   removePlaygroundFromWorkspace();
 }
 
@@ -363,11 +389,16 @@ async function isAnalyzerServerActive(): Promise<boolean> {
     const response = await fetch(`${analyzerServerAddress}/alive`);
 
     if (!response.ok) {
-      channel?.appendLine(`Analyzer server responding with not ok. Message: ${await response.text()}`);
+      channel?.appendLine(
+        `Analyzer server responding with not ok. Message: ${await response.text()}`
+      );
       return false;
     }
   } catch (error) {
-    printErrorToChannel("Error occurred when trying to check if Analyzer server is alive", error);
+    printErrorToChannel(
+      "Error occurred when trying to check if Analyzer server is alive",
+      error
+    );
     return false;
   }
 
@@ -390,7 +421,7 @@ async function safeCopyFile(
   return true;
 }
 
-async function tryCreateAanalyzerServer(
+async function tryCreateAnalyzerServer(
   analyzerServerResourcePath: string,
   analyzerServerProjFileResourcePath: string
 ) {
@@ -408,7 +439,10 @@ async function tryCreateAanalyzerServer(
     );
     await safeCopyFile(analyzerServerResourcePath, analyzerServerFilePath);
   } catch (error) {
-    printErrorToChannel("Error when trying to create and setup Analyzer server", error);
+    printErrorToChannel(
+      "Error when trying to create and setup Analyzer server",
+      error
+    );
 
     return false;
   }
@@ -477,10 +511,15 @@ async function waitForAnalyzerServerReady(token: vscode.CancellationToken) {
 
 async function isDotnetAvailable() {
   try {
-    channel?.appendLine("Checking .NET SDK is installed and that PATH accessible");
+    channel?.appendLine(
+      "Checking that .NET SDK is installed and that PATH is accessible"
+    );
     await execPromise("dotnet --version");
   } catch (error) {
-    printErrorToChannel("Cant find that the .NET SDK is installed or that PATH is accessible", error);
+    printErrorToChannel(
+      "Cant find that the .NET SDK is installed or that PATH is accessible",
+      error
+    );
     return false;
   }
 
@@ -497,6 +536,10 @@ function getConfigSettings(): ConfigSettings {
 
 function getAnalyzerServerAddress() {
   return `http://localhost:${getConfigSettings().analyzerServerPort}`;
+}
+
+function getAnalyzerServerHubAddress(serverAddress: string) {
+  return `${serverAddress}/hub`;
 }
 
 function equalPaths(firstPath: string, secondPath: string) {
