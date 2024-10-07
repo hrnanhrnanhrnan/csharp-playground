@@ -18,14 +18,6 @@ export class AnalyzerConnectionManager {
     this.channel = channel;
   }
 
-  public static updateServerAddress(serverAddress: string) {
-    if (!this.instance) {
-      return;
-    }
-
-    this.instance.baseUrl = serverAddress;
-  }
-
   public static getConnection(serverAddress: string) {
     if (!this.instance) {
       this.instance = new signalR.HubConnectionBuilder()

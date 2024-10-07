@@ -233,6 +233,7 @@ async function setupAnalyzerClient(context: vscode.ExtensionContext) {
   );
 
   AnalyzerConnectionManager.setInlayHintsProvider(inlayHintsProvider);
+  AnalyzerConnectionManager.setOutputChannel(channel!);
   context.subscriptions.push(inlayHintsDisposable);
 }
 
