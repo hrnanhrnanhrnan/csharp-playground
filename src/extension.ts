@@ -46,19 +46,28 @@ let analyzerWelcomeMessageResourcePath: string = "";
 let connection: signalR.HubConnection | undefined;
 let channel: vscode.OutputChannel | undefined;
 
-// This method is called when your extension is activated
-// Your extension is activated the very first time the command is executed
+export async function deactivate() {
+  await shutdown();
+  AnalyzerConnectionManager.dispose();
+}
+
 export async function activate(context: vscode.ExtensionContext) {
-  // Use the console to output diagnostic information (console.log) and errors (console.error)
-  // This line of code will only be executed once when your extension is activated
   console.log(`The "${extensionName}" extension is now active!`);
 
   // Setup output channel
   channel = vscode.window.createOutputChannel(extensionName);
 
   isDotnetInstalled = await isDotnetAvailable();
-
-  await runSetup(context);
+  if (!isDotnetInstalled) {
+    alertUser(
+      `Cant find that the .NET SDK is installed or that PATH is accessible. 
+      Make sure that the .NET SDK is installed and that dotnet is added to PATH`,
+      "error"
+    );
+  } else {
+    buildPaths(context);
+    await setupAnalyzerClient(context);
+  }
 
   const stopDisposable = vscode.commands.registerCommand(
     `${extensionName}.stop`,
@@ -70,51 +79,8 @@ export async function activate(context: vscode.ExtensionContext) {
     playCommand
   );
 
-  context.subscriptions.push(playDisposable);
   context.subscriptions.push(stopDisposable);
-}
-
-async function runSetup(context: vscode.ExtensionContext) {
-  analyzerServerAddress = getAnalyzerServerAddress();
-  hubAddress = getAnalyzerServerHubAddress(analyzerServerAddress);
-
-  analyzerServerCsProjResourcePath = path.resolve(
-    path.join(
-      context.extensionPath,
-      "resources",
-      "AnalyzerServerCsProjFile.txt"
-    )
-  );
-  analyzerServerResourcePath = path.resolve(
-    path.join(context.extensionPath, "resources", "AnalyzerServer.cs")
-  );
-  analyzerWelcomeMessageResourcePath = path.resolve(
-    path.join(context.extensionPath, "resources", "WelcomeMessage.cs")
-  );
-
-  // Setup analyzer server connection manager
-  connection = AnalyzerConnectionManager.getConnection(hubAddress);
-
-  if (
-    (await isAnalyzerServerActive()) &&
-    connection.state === signalR.HubConnectionState.Disconnected &&
-    !(await tryStartAanalyzerHubConnection(connection))
-  ) {
-    alertUser(
-      "Something went wrong trying to start the Hub Connection to the Analyzer Server, check output for more information",
-      "error"
-    );
-  }
-
-  // Setup inlayhints
-  const inlayHintsProvider = new PlaygroundInlayHintsProvider();
-  const inlayHintsDisposable = vscode.languages.registerInlayHintsProvider(
-    { scheme: "file", language: "csharp" },
-    inlayHintsProvider
-  );
-
-  AnalyzerConnectionManager.setInlayHintsProvider(inlayHintsProvider);
-  context.subscriptions.push(inlayHintsDisposable);
+  context.subscriptions.push(playDisposable);
 }
 
 async function stopCommand() {
@@ -124,7 +90,7 @@ async function stopCommand() {
 async function playCommand() {
   if (!isDotnetInstalled) {
     alertUser(
-      "Cant find that .NET SDK is installed or that PATH is accessible",
+      "Cant find that .NET SDK is installed or that PATH is accessible. Have you recently installed, try to reload vscode",
       "error"
     );
     return;
@@ -150,7 +116,7 @@ async function playCommand() {
 
       progress.report({ message: "Setting up the playgorund..." });
 
-      if (!(await createCsharp(playgroundDirPath!))) {
+      if (!(await createCsharp(playgroundDirPath))) {
         alertUser(
           "It went wrong creating the project, look in output",
           "error"
@@ -159,6 +125,7 @@ async function playCommand() {
       }
 
       progress.report({ message: "Setting up the analyzer server..." });
+
       if (
         !(await tryCreateAnalyzerServer(
           analyzerServerResourcePath,
@@ -176,7 +143,11 @@ async function playCommand() {
       setupAndRunTerminals();
 
       progress.report({ message: "Waiting for analyzer server..." });
-      const isServerReadyPromise = waitForAnalyzerServerReady(token);
+
+      const isServerReadyPromise = waitForAnalyzerServerReady(
+        maxServerRetries,
+        token
+      );
 
       const { error, document } = await openTextDocument(playgroundFilePath);
       if (error) {
@@ -194,6 +165,7 @@ async function playCommand() {
 
         return;
       }
+
       if (
         connection.state === signalR.HubConnectionState.Disconnected &&
         !(await tryStartAanalyzerHubConnection(connection))
@@ -207,6 +179,7 @@ async function playCommand() {
       }
 
       progress.report({ message: "Setting up workspace..." });
+
       if (!isPlaygroundInWorkspace()) {
         addPlaygroundToWorkspace();
       }
@@ -217,6 +190,50 @@ async function playCommand() {
       );
     }
   );
+}
+
+function buildPaths(context: vscode.ExtensionContext) {
+  analyzerServerAddress = getAnalyzerServerAddress();
+  hubAddress = getAnalyzerServerHubAddress(analyzerServerAddress);
+
+  analyzerServerCsProjResourcePath = path.resolve(
+    path.join(
+      context.extensionPath,
+      "resources",
+      "AnalyzerServerCsProjFile.txt"
+    )
+  );
+  analyzerServerResourcePath = path.resolve(
+    path.join(context.extensionPath, "resources", "AnalyzerServer.cs")
+  );
+  analyzerWelcomeMessageResourcePath = path.resolve(
+    path.join(context.extensionPath, "resources", "WelcomeMessage.cs")
+  );
+}
+
+async function setupAnalyzerClient(context: vscode.ExtensionContext) {
+  connection = AnalyzerConnectionManager.getConnection(hubAddress);
+
+  if (
+    (await isAnalyzerServerActive(analyzerServerAddress)) &&
+    connection.state === signalR.HubConnectionState.Disconnected &&
+    !(await tryStartAanalyzerHubConnection(connection))
+  ) {
+    alertUser(
+      "Something went wrong trying to start the Hub Connection to the Analyzer Server, check output for more information",
+      "error"
+    );
+  }
+
+  // Setup inlayhints
+  const inlayHintsProvider = new PlaygroundInlayHintsProvider();
+  const inlayHintsDisposable = vscode.languages.registerInlayHintsProvider(
+    { scheme: "file", language: "csharp" },
+    inlayHintsProvider
+  );
+
+  AnalyzerConnectionManager.setInlayHintsProvider(inlayHintsProvider);
+  context.subscriptions.push(inlayHintsDisposable);
 }
 
 function printErrorToChannel(message: string, error: unknown) {
@@ -363,15 +380,8 @@ async function runExecCommand(command: string, cwd: string): Promise<boolean> {
   return true;
 }
 
-// This method is called when your extension is deactivated
-export function deactivate() {
-  shutdown();
-  AnalyzerConnectionManager.dispose();
-}
-
 async function shutdown() {
   disposeTerminals();
-
   try {
     await AnalyzerConnectionManager.stopConnection();
   } catch (error) {
@@ -380,13 +390,12 @@ async function shutdown() {
       error
     );
   }
-
   removePlaygroundFromWorkspace();
 }
 
-async function isAnalyzerServerActive(): Promise<boolean> {
+async function isAnalyzerServerActive(analyzerServerAddress: string): Promise<boolean> {
   try {
-    const response = await fetch(`${analyzerServerAddress}/alive`);
+    const response = await fetch(getAnalyzerServerStatusAddress(analyzerServerAddress));
 
     if (!response.ok) {
       channel?.appendLine(
@@ -463,7 +472,7 @@ function alertUser(message: string, type: "error" | "success") {
 }
 
 vscode.workspace.onDidChangeWorkspaceFolders(async (event) => {
-  if (event.removed && !(await isAnalyzerServerActive())) {
+  if (event.removed && !(await isAnalyzerServerActive(analyzerServerAddress))) {
     shutdown();
   }
 });
@@ -476,7 +485,10 @@ vscode.workspace.onDidSaveTextDocument(async (document) => {
   await connection?.invoke("AnalyzeCode", document.getText());
 });
 
-async function waitForAnalyzerServerReady(token: vscode.CancellationToken) {
+async function waitForAnalyzerServerReady(
+  maxServerRetries: number,
+  token: vscode.CancellationToken
+) {
   let tryCount = 0;
 
   return new Promise<boolean>((resolve, reject) => {
@@ -491,7 +503,7 @@ async function waitForAnalyzerServerReady(token: vscode.CancellationToken) {
         return;
       }
 
-      if (await isAnalyzerServerActive()) {
+      if (await isAnalyzerServerActive(analyzerServerAddress)) {
         channel?.appendLine("Analyzer server is ready");
         resolve(true);
         return;
@@ -540,6 +552,10 @@ function getAnalyzerServerAddress() {
 
 function getAnalyzerServerHubAddress(serverAddress: string) {
   return `${serverAddress}/hub`;
+}
+
+function getAnalyzerServerStatusAddress(serverAddress: string) {
+  return `${serverAddress}/alive`;
 }
 
 function equalPaths(firstPath: string, secondPath: string) {

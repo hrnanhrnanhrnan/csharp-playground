@@ -36,7 +36,7 @@ export class AnalyzerConnectionManager {
 
       this.instance.on("AnalyzedData", (data) => {
         const analyzerData = JSON.parse(data);
-        AnalyzerConnectionManager.inlayHintsProvider?.setData(analyzerData);
+        this.inlayHintsProvider?.setData(analyzerData);
       });
 
       this.instance.onreconnecting((error) => {

@@ -19,11 +19,6 @@ export class PlaygroundInlayHintsProvider implements vscode.InlayHintsProvider {
 
     for (let i = 0; i < document.lineCount; i++) {
       const line = document.lineAt(i);
-      console.log(
-        "Current analyzerData:",
-        JSON.stringify(this.analyzerData, null, 2)
-      );
-      console.log(`Processing line ${i}: "${line.text}"`);
 
       const match = this.analyzerData.find(
         (x) => x.Line.trim() === line.text.trim()
@@ -48,7 +43,6 @@ export class PlaygroundInlayHintsProvider implements vscode.InlayHintsProvider {
   }
 
   public setData(analyzerDataItems: AnalyzedDataItem[]) {
-    console.log("setData called with", analyzerDataItems);
     this.analyzerData = analyzerDataItems;
     this._onDidChangeInlayHints.fire();
   }
