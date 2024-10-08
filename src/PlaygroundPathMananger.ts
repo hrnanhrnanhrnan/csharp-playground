@@ -30,7 +30,6 @@ export class PlaygroundPathMananger {
   public maxServerRetries = 30;
   public analyzerServerTerminalName = "Analyzer-runner";
   public playgorundRunnerTerminalName = "Playground-runner";
-  public defaultPort = 5140;
   public platform = os.platform();
   public shell = this.platform === "win32" ? "powershell.exe" : "/bin/bash";
   public analyzerServerAddress = "";
