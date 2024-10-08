@@ -10,41 +10,18 @@ import { copyFile, mkdir } from "fs/promises";
 import * as signalR from "@microsoft/signalr";
 import { AnalyzerConnectionManager } from "./AnalyzerConnectionManager";
 import { PlaygroundInlayHintsProvider } from "./PlaygroundInlayHintsProvider";
+import { PlaygroundPathMananger } from "./PlaygroundPathMananger";
+import { extensionName, maxServerRetries, playgroundRunnerTerminalName, analyzerServerTerminalName, defaultPort } from "./Constants";
+import { PlaygroundRunner } from "./PlaygroundRunner";
 
 const execPromise = promisify(exec);
-const extensionName = "csharp-playground";
-const homeDir = os.homedir();
-const extensionDirName = `.csharp_playground`;
-const analyzerServerDirPath = path.resolve(
-  path.join(homeDir, extensionDirName, "analyzer")
-);
-const analyzerServerFilePath = path.resolve(
-  path.join(analyzerServerDirPath, "Program.cs")
-);
-const analyzerServerCsProjFilePath = path.resolve(
-  path.join(analyzerServerDirPath, "analyzer.csproj")
-);
-const playgroundDirPath = path.resolve(
-  path.join(homeDir, extensionDirName, "playground")
-);
-const playgroundDirUri = vscode.Uri.file(playgroundDirPath);
-const playgroundFilePath = path.resolve(
-  path.join(playgroundDirPath, "Program.cs")
-);
-const maxServerRetries = 30;
-const analyzerServerTerminalName = "Analyzer-runner";
-const playgorundRunnerTerminalName = "Playground-runner";
-let isDotnetInstalled = false;
-const defaultPort = 5140;
 const platform = os.platform();
 const shell = platform === "win32" ? "powershell.exe" : "/bin/bash";
-let analyzerServerAddress = "";
-let hubAddress = "";
-let analyzerServerCsProjResourcePath: string = "";
-let analyzerServerResourcePath: string = "";
-let analyzerWelcomeMessageResourcePath: string = "";
+let isDotnetInstalled = false;
 let connection: signalR.HubConnection | undefined;
 let channel: vscode.OutputChannel | undefined;
+let pathManager: PlaygroundPathMananger | undefined;
+let playgroundRunner: PlaygroundRunner | undefined;
 
 export async function deactivate() {
   await shutdown();
@@ -57,6 +34,9 @@ export async function activate(context: vscode.ExtensionContext) {
   // Setup output channel
   channel = vscode.window.createOutputChannel(extensionName);
 
+  pathManager = PlaygroundPathMananger.getInstance(context, channel);
+  playgroundRunner = new PlaygroundRunner(pathManager);
+
   isDotnetInstalled = await isDotnetAvailable();
   if (!isDotnetInstalled) {
     alertUser(
@@ -64,10 +44,8 @@ export async function activate(context: vscode.ExtensionContext) {
       Make sure that the .NET SDK is installed and that dotnet is added to PATH`,
       "error"
     );
-  } else {
-    buildPaths(context);
-    await setupAnalyzerClient(context);
   }
+  await setupAnalyzerClient(context);
 
   const stopDisposable = vscode.commands.registerCommand(
     `${extensionName}.stop`,
@@ -107,16 +85,15 @@ async function playCommand() {
         shutdown();
       });
 
-      analyzerServerAddress = getAnalyzerServerAddress();
-      hubAddress = getAnalyzerServerHubAddress(analyzerServerAddress);
+      PlaygroundPathMananger.refreshAnalyzerServerAddresses();
 
       disposeTerminals();
       await AnalyzerConnectionManager.stopConnection();
-      connection = AnalyzerConnectionManager.getConnection(hubAddress);
+      connection = AnalyzerConnectionManager.getConnection(pathManager!.hubAddress);
 
       progress.report({ message: "Setting up the playgorund..." });
 
-      if (!(await createCsharp(playgroundDirPath))) {
+      if (!(await createCsharp(pathManager!.playgroundDirPath))) {
         alertUser(
           "It went wrong creating the project, look in output",
           "error"
@@ -128,8 +105,8 @@ async function playCommand() {
 
       if (
         !(await tryCreateAnalyzerServer(
-          analyzerServerResourcePath,
-          analyzerServerCsProjResourcePath
+          pathManager!.analyzerServerResourcePath,
+          pathManager!.analyzerServerCsProjResourcePath
         ))
       ) {
         alertUser(
@@ -149,7 +126,7 @@ async function playCommand() {
         token
       );
 
-      const { error, document } = await openTextDocument(playgroundFilePath);
+      const { error, document } = await openTextDocument(pathManager!.playgroundFilePath);
       if (error) {
         alertUser("It went wrong opening the file, look in output", "error");
         return;
@@ -185,37 +162,18 @@ async function playCommand() {
       }
 
       alertUser(
-        `Succesfully created and launched a playground at ${playgroundFilePath}`,
+        `Succesfully created and launched a playground at ${pathManager!.playgroundFilePath}`,
         "success"
       );
     }
   );
 }
 
-function buildPaths(context: vscode.ExtensionContext) {
-  analyzerServerAddress = getAnalyzerServerAddress();
-  hubAddress = getAnalyzerServerHubAddress(analyzerServerAddress);
-
-  analyzerServerCsProjResourcePath = path.resolve(
-    path.join(
-      context.extensionPath,
-      "resources",
-      "AnalyzerServerCsProjFile.txt"
-    )
-  );
-  analyzerServerResourcePath = path.resolve(
-    path.join(context.extensionPath, "resources", "AnalyzerServer.cs")
-  );
-  analyzerWelcomeMessageResourcePath = path.resolve(
-    path.join(context.extensionPath, "resources", "WelcomeMessage.cs")
-  );
-}
-
 async function setupAnalyzerClient(context: vscode.ExtensionContext) {
-  connection = AnalyzerConnectionManager.getConnection(hubAddress);
+  connection = AnalyzerConnectionManager.getConnection(pathManager!.hubAddress);
 
   if (
-    (await isAnalyzerServerActive(analyzerServerAddress)) &&
+    (await isAnalyzerServerActive()) &&
     connection.state === signalR.HubConnectionState.Disconnected &&
     !(await tryStartAanalyzerHubConnection(connection))
   ) {
@@ -288,13 +246,13 @@ function addPlaygroundToWorkspace(): boolean {
       ? vscode.workspace.workspaceFolders.length
       : 0,
     null,
-    { uri: playgroundDirUri, name: extensionName }
+    { uri: pathManager!.playgroundDirUri, name: extensionName }
   );
 }
 
 function removePlaygroundFromWorkspace() {
   const playgroundWorkspaceFolder =
-    vscode.workspace.getWorkspaceFolder(playgroundDirUri);
+    vscode.workspace.getWorkspaceFolder(pathManager!.playgroundDirUri);
 
   if (!playgroundWorkspaceFolder) {
     return;
@@ -305,14 +263,14 @@ function removePlaygroundFromWorkspace() {
 
 function setupAndRunTerminals() {
   const playgroundTerminal = vscode.window.createTerminal({
-    name: playgorundRunnerTerminalName,
-    cwd: playgroundDirPath,
+    name: playgroundRunnerTerminalName,
+    cwd: pathManager!.playgroundDirPath,
     shellPath: shell,
   });
 
   const analyzerServerTerminal = vscode.window.createTerminal({
     name: analyzerServerTerminalName,
-    cwd: analyzerServerDirPath,
+    cwd: pathManager!.analyzerServerDirPath,
     shellPath: shell,
     location: {
       parentTerminal: playgroundTerminal,
@@ -322,7 +280,7 @@ function setupAndRunTerminals() {
   playgroundTerminal.sendText("dotnet watch run");
   playgroundTerminal.show(true);
   analyzerServerTerminal.sendText(
-    `dotnet run -c Release --urls ${analyzerServerAddress} `
+    `dotnet run -c Release --urls ${pathManager!.analyzerServerAddress} `
   );
 
   analyzerServerTerminal.show(true);
@@ -331,7 +289,7 @@ function setupAndRunTerminals() {
 function disposeTerminals() {
   const terminals = vscode.window.terminals.filter(
     (x) =>
-      x.name === playgorundRunnerTerminalName ||
+      x.name === playgroundRunnerTerminalName ||
       x.name === analyzerServerTerminalName
   );
 
@@ -342,7 +300,7 @@ function disposeTerminals() {
 
 function isPlaygroundInWorkspace() {
   const playgroundWorkspaceFolder =
-    vscode.workspace.getWorkspaceFolder(playgroundDirUri);
+    vscode.workspace.getWorkspaceFolder(pathManager!.playgroundDirUri);
 
   return playgroundWorkspaceFolder !== undefined;
 }
@@ -353,7 +311,7 @@ async function createCsharp(dirPath: string): Promise<boolean> {
   return (
     (await runExecCommand("dotnet new console --force", dirPath)) &&
     (await safeCopyFile(
-      analyzerWelcomeMessageResourcePath,
+      pathManager!.analyzerWelcomeMessageResourcePath,
       path.resolve(path.join(dirPath, "Program.cs"))
     ))
   );
@@ -394,9 +352,9 @@ async function shutdown() {
   removePlaygroundFromWorkspace();
 }
 
-async function isAnalyzerServerActive(analyzerServerAddress: string): Promise<boolean> {
+async function isAnalyzerServerActive(): Promise<boolean> {
   try {
-    const response = await fetch(getAnalyzerServerStatusAddress(analyzerServerAddress));
+    const response = await fetch(pathManager!.analyzerServerStatusAddress);
 
     if (!response.ok) {
       channel?.appendLine(
@@ -436,18 +394,18 @@ async function tryCreateAnalyzerServer(
   analyzerServerProjFileResourcePath: string
 ) {
   try {
-    if (existsSync(analyzerServerFilePath)) {
+    if (existsSync(pathManager!.analyzerServerFilePath)) {
       return true;
     }
 
-    await mkdir(analyzerServerDirPath, { recursive: true });
-    await runExecCommand("dotnet new web --force", analyzerServerDirPath);
+    await mkdir(pathManager!.analyzerServerDirPath, { recursive: true });
+    await runExecCommand("dotnet new web --force", pathManager!.analyzerServerDirPath);
 
     await safeCopyFile(
       analyzerServerProjFileResourcePath,
-      analyzerServerCsProjFilePath
+      pathManager!.analyzerServerCsProjFilePath
     );
-    await safeCopyFile(analyzerServerResourcePath, analyzerServerFilePath);
+    await safeCopyFile(analyzerServerResourcePath, pathManager!.analyzerServerFilePath);
   } catch (error) {
     printErrorToChannel(
       "Error when trying to create and setup Analyzer server",
@@ -473,13 +431,13 @@ function alertUser(message: string, type: "error" | "success") {
 }
 
 vscode.workspace.onDidChangeWorkspaceFolders(async (event) => {
-  if (event.removed && !(await isAnalyzerServerActive(analyzerServerAddress))) {
+  if (event.removed && !(await isAnalyzerServerActive())) {
     shutdown();
   }
 });
 
 vscode.workspace.onDidSaveTextDocument(async (document) => {
-  if (!equalPaths(document.uri.fsPath, playgroundFilePath)) {
+  if (!equalPaths(document.uri.fsPath, pathManager!.playgroundFilePath)) {
     return;
   }
 
@@ -504,7 +462,7 @@ async function waitForAnalyzerServerReady(
         return;
       }
 
-      if (await isAnalyzerServerActive(analyzerServerAddress)) {
+      if (await isAnalyzerServerActive()) {
         channel?.appendLine("Analyzer server is ready");
         resolve(true);
         return;
@@ -539,25 +497,6 @@ async function isDotnetAvailable() {
   return true;
 }
 
-function getConfigSettings(): ConfigSettings {
-  const config = vscode.workspace.getConfiguration(extensionName);
-
-  return {
-    analyzerServerPort: config.get<number>("analyzerServerPort") ?? defaultPort,
-  };
-}
-
-function getAnalyzerServerAddress() {
-  return `http://localhost:${getConfigSettings().analyzerServerPort}`;
-}
-
-function getAnalyzerServerHubAddress(serverAddress: string) {
-  return `${serverAddress}/hub`;
-}
-
-function getAnalyzerServerStatusAddress(serverAddress: string) {
-  return `${serverAddress}/alive`;
-}
 
 function equalPaths(firstPath: string, secondPath: string) {
   const firstPathNorm = path.resolve(firstPath);
