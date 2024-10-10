@@ -1,8 +1,9 @@
 {
   "name": "csharp-playground",
   "displayName": "C# Playground",
-  "description": "Spin up a fast playground in C# with one command, running hot reload for fast interation",
+  "description": "Spin up a fast playground in C# with one command, with inline values and running hot reload for fast interaction",
   "version": "0.0.1",
+  "publisher": "hrnan",
   "engines": {
     "vscode": "^1.93.0"
   },
@@ -10,22 +11,32 @@
     "Other"
   ],
   "main": "./dist/extension.js",
+  "activationEvents": [
+    "onCommand:csharp-playground.newPlayground",
+    "onCommand:csharp-playground.continuePlayground",
+    "onCommand:csharp-playground.stopPlayground",
+    "onStartupFinished"
+  ],
   "properties": {
     "csharp-playground.analyzerServerPort": {
-        "type": "number",
-        "default": 5140,
-        "description": "Edit the port for the analyzer server to run at"
+      "type": "number",
+      "default": 5140,
+      "description": "Edit the port for the analyzer server to run at"
     }
   },
   "contributes": {
     "commands": [
       {
-        "command": "csharp-playground.play",
-        "title": "csharp-playground: Play"
+        "command": "csharp-playground.newPlayground",
+        "title": "csharp-playground: New Playground"
       },
       {
-        "command": "csharp-playground.stop",
-        "title": "csharp-playground: Stop"
+        "command": "csharp-playground.continuePlayground",
+        "title": "csharp-playground: Continue Playground"
+      },
+      {
+        "command": "csharp-playground.stopPlayground",
+        "title": "csharp-playground: Stop Playground"
       }
     ]
   },
@@ -51,12 +62,15 @@
     "@typescript-eslint/parser": "^8.3.0",
     "@vscode/test-cli": "^0.0.10",
     "@vscode/test-electron": "^2.4.1",
-    "esbuild": "^0.23.1",
+    "esbuild": "^0.24.0",
     "eslint": "^9.9.1",
     "npm-run-all": "^4.1.5",
     "typescript": "^5.5.4"
   },
   "dependencies": {
-    "@microsoft/signalr": "^8.0.7"
-  }
+  },
+  "files": [
+    "dist",
+    "resources"
+  ]
 }

@@ -1,5 +1,6 @@
 import path from "path";
-import { platform } from "./Constants";
+import { extensionName, platform } from "./constants";
+import * as vscode from "vscode";
 
 export function equalPaths(firstPath: string, secondPath: string) {
   const firstPathNorm = path.resolve(firstPath);
@@ -11,3 +12,15 @@ export function equalPaths(firstPath: string, secondPath: string) {
 
   return firstPathNorm === secodPathNorm;
 }
+
+  export function alertUser(message: string, type: "error" | "success") {
+    const alertMessage = `${extensionName}: 
+          ${message}`;
+
+    if (type === "error") {
+      vscode.window.showErrorMessage(alertMessage);
+      return;
+    }
+
+    vscode.window.showInformationMessage(alertMessage);
+  }

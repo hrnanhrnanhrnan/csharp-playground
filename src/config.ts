@@ -1,4 +1,4 @@
-import { extensionName, defaultPort } from "./Constants";
+import { extensionName, defaultPort } from "./constants";
 import { workspace } from "vscode";
 
 export function getConfigSettings(): ConfigSettings {

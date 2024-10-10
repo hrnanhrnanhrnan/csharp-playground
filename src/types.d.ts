@@ -1,8 +1,10 @@
 type AnalyzedDataItem = {
-  Line: string;
-  Value: string;
+  line: string;
+  value: string;
 };
 
 type ConfigSettings = {
     analyzerServerPort?: number
 }
+
+type PlaygroundType = "New" | "Continue";

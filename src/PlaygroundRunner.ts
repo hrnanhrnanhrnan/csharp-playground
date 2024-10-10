@@ -3,100 +3,59 @@ import { exec } from "child_process";
 import { existsSync } from "fs";
 import path from "path";
 import { promisify } from "util";
-import { copyFile, mkdir } from "fs/promises";
-import * as signalR from "@microsoft/signalr";
-import { AnalyzerConnectionManager } from "./AnalyzerConnectionManager";
+import { copyFile, mkdir, rm } from "fs/promises";
+import { AnalyzerServerManager } from "./AnalyzerServerManager";
 import { PlaygroundInlayHintsProvider } from "./PlaygroundInlayHintsProvider";
 import { PlaygroundPathMananger } from "./PlaygroundPathMananger";
 import {
   extensionName,
   maxServerRetries,
   playgroundRunnerTerminalName,
-  analyzerServerTerminalName,
-  platform,
-} from "./Constants";
+  shell,
+} from "./constants";
+import { PlaygroundOutputChannel } from "./PlaygroundOutputChannel";
 
 const execPromise = promisify(exec);
 
 export class PlaygroundRunner {
   public pathManager: PlaygroundPathMananger;
-  private connection: signalR.HubConnection;
-  private channel: vscode.OutputChannel;
-  private shell = platform === "win32" ? "powershell.exe" : "/bin/bash";
+  private serverManager: AnalyzerServerManager;
+  private channel: PlaygroundOutputChannel;
 
-  constructor(context: vscode.ExtensionContext, channel: vscode.OutputChannel) {
-    this.pathManager = PlaygroundPathMananger.getInstance(context, channel);
-    this.connection = AnalyzerConnectionManager.getConnection(
-      this.pathManager.analyzerServerAddress
-    );
+  constructor(context: vscode.ExtensionContext, pathManager: PlaygroundPathMananger, serverManager: AnalyzerServerManager, channel: PlaygroundOutputChannel) {
+    this.pathManager = pathManager;
     this.channel = channel;
+    this.serverManager = serverManager;
   }
 
-  public getActiveConnectionState() {
-    return this.connection.state;
+  async clearPlayground() {
+    this.disposeTerminals();
   }
 
-  async setupAnalyzerClient(context: vscode.ExtensionContext) {
-    this.connection = AnalyzerConnectionManager.getConnection(
-      this.pathManager.hubAddress
-    );
-
-    if (
-      (await this.isAnalyzerServerActive()) &&
-      this.connection.state === signalR.HubConnectionState.Disconnected &&
-      !(await this.tryStartAanalyzerHubConnection())
-    ) {
-      this.alertUser(
-        "Something went wrong trying to start the Hub Connection to the Analyzer Server, check output for more information",
-        "error"
-      );
+  async removeAnalyzerServerFromDisk() {
+    if (!existsSync(this.pathManager.analyzerServerDirPath)) {
+      return;
     }
 
-    // Setup inlayhints
-    const inlayHintsProvider = new PlaygroundInlayHintsProvider();
-    const inlayHintsDisposable = vscode.languages.registerInlayHintsProvider(
-      { scheme: "file", language: "csharp" },
-      inlayHintsProvider
-    );
-
-    AnalyzerConnectionManager.setInlayHintsProvider(inlayHintsProvider);
-    AnalyzerConnectionManager.setOutputChannel(this.channel);
-    context.subscriptions.push(inlayHintsDisposable);
-  }
-
-  printErrorToChannel(message: string, error: unknown) {
-    this.channel.appendLine(
-      `${message}: ${(error as Error)?.message ?? error}`
-    );
-  }
-
-  async tryStartAanalyzerHubConnection() {
     try {
-      await this.connection.start();
+      await rm(this.pathManager.analyzerServerDirPath, { recursive: true, force: true });
     } catch (error) {
-      this.printErrorToChannel(
-        "Following error occurred when trying to start the Analyzer server",
-        error
-      );
-      await this.shutdown();
-      return false;
+      this.channel.printErrorToChannel("Following error occurred trying to remove Analyzer server from disk", error);
     }
-
-    return true;
   }
 
-  async openTextDocument(filePath: string): Promise<{
+  async openTextDocument(): Promise<{
     error: Error | undefined;
     document: vscode.TextDocument | undefined;
   }> {
     let document: vscode.TextDocument | undefined;
     try {
-      const uri = vscode.Uri.file(filePath);
+      const uri = vscode.Uri.file(this.pathManager.playgroundFilePath);
       document = await vscode.workspace.openTextDocument(uri);
       await vscode.window.showTextDocument(document);
     } catch (error) {
-      this.printErrorToChannel(
-        `Error occurred when trying to open file at "${filePath}"`,
+      this.channel.printErrorToChannel(
+        `Error occurred when trying to open file at "${this.pathManager.playgroundFilePath}"`,
         error
       );
       if (error instanceof Error) {
@@ -131,41 +90,35 @@ export class PlaygroundRunner {
     vscode.workspace.updateWorkspaceFolders(playgroundWorkspaceFolder.index, 1);
   }
 
-  setupAndRunTerminals() {
+  runPlaygroundInTerminal() {
+    const analyzerServerTerminal = this.serverManager.runServerInTerminal();
+    
     const playgroundTerminal = vscode.window.createTerminal({
       name: playgroundRunnerTerminalName,
       cwd: this.pathManager.playgroundDirPath,
-      shellPath: this.shell,
-    });
-
-    const analyzerServerTerminal = vscode.window.createTerminal({
-      name: analyzerServerTerminalName,
-      cwd: this.pathManager.analyzerServerDirPath,
-      shellPath: this.shell,
+      shellPath: shell,
       location: {
-        parentTerminal: playgroundTerminal,
+        parentTerminal: analyzerServerTerminal,
       },
     });
 
+    analyzerServerTerminal.show(true);
     playgroundTerminal.sendText("dotnet watch run");
     playgroundTerminal.show(true);
-    analyzerServerTerminal.sendText(
-      `dotnet run -c Release --urls ${this.pathManager.analyzerServerAddress} `
-    );
-
-    analyzerServerTerminal.show(true);
   }
 
   disposeTerminals() {
-    const terminals = vscode.window.terminals.filter(
+    this.serverManager.disposeServer();
+    const playgroundTerminal = vscode.window.terminals.find(
       (x) =>
-        x.name === playgroundRunnerTerminalName ||
-        x.name === analyzerServerTerminalName
+        x.name === playgroundRunnerTerminalName
     );
 
-    for (let index = 0; index < terminals.length; index++) {
-      terminals[index].dispose();
+    if (!playgroundTerminal) {
+      return;
     }
+
+    playgroundTerminal.dispose();
   }
 
   isPlaygroundInWorkspace() {
@@ -193,7 +146,7 @@ export class PlaygroundRunner {
     try {
       const { stdout, stderr } = await execPromise(command, {
         cwd,
-        shell: this.shell,
+        shell: shell,
       });
 
       if (stdout) {
@@ -204,7 +157,7 @@ export class PlaygroundRunner {
         this.channel.appendLine(stderr);
       }
     } catch (error) {
-      this.printErrorToChannel(
+      this.channel.printErrorToChannel(
         `Error occurred when trying to run command "${command}"`,
         error
       );
@@ -214,54 +167,9 @@ export class PlaygroundRunner {
     return true;
   }
 
-  async refreshPlaygroundState() {
-    PlaygroundPathMananger.refreshAnalyzerServerAddresses();
+  shutdown() {
     this.disposeTerminals();
-    await AnalyzerConnectionManager.stopConnection();
-    this.connection = AnalyzerConnectionManager.getConnection(
-      this.pathManager.hubAddress
-    );
-  }
-
-  async shutdown(disposeConnection: boolean = false) {
-    this.disposeTerminals();
-    try {
-      await AnalyzerConnectionManager.stopConnection();
-    } catch (error) {
-      this.printErrorToChannel(
-        "Following error occurred when trying to stop Analyzer connection manager",
-        error
-      );
-    }
-
     this.removePlaygroundFromWorkspace();
-
-    if (disposeConnection) {
-      AnalyzerConnectionManager.dispose();
-    }
-  }
-
-  async isAnalyzerServerActive(): Promise<boolean> {
-    try {
-      const response = await fetch(
-        this.pathManager.analyzerServerStatusAddress
-      );
-
-      if (!response.ok) {
-        this.channel.appendLine(
-          `Analyzer server responding with not ok. Message: ${await response.text()}`
-        );
-        return false;
-      }
-    } catch (error) {
-      this.printErrorToChannel(
-        "Error occurred when trying to check if Analyzer server is alive",
-        error
-      );
-      return false;
-    }
-
-    return true;
   }
 
   async safeCopyFile(
@@ -273,7 +181,7 @@ export class PlaygroundRunner {
       await mkdir(parentDir, { recursive: true });
       await copyFile(srcFilePath, destFilePath);
     } catch (error) {
-      this.printErrorToChannel(
+      this.channel.printErrorToChannel(
         "Could not copy file, following error occured",
         error
       );
@@ -304,7 +212,7 @@ export class PlaygroundRunner {
         this.pathManager.analyzerServerFilePath
       );
     } catch (error) {
-      this.printErrorToChannel(
+      this.channel.printErrorToChannel(
         "Error when trying to create and setup Analyzer server",
         error
       );
@@ -315,20 +223,8 @@ export class PlaygroundRunner {
     return true;
   }
 
-  alertUser(message: string, type: "error" | "success") {
-    const alertMessage = `${extensionName}: 
-          ${message}`;
-
-    if (type === "error") {
-      vscode.window.showErrorMessage(alertMessage);
-      return;
-    }
-
-    vscode.window.showInformationMessage(alertMessage);
-  }
-
   public async analyzeCode(document: vscode.TextDocument) {
-    return this.connection.invoke("AnalyzeCode", document.getText());
+    return this.serverManager.analyzeCode(document.getText());
   }
 
   async waitForAnalyzerServerReady(token: vscode.CancellationToken) {
@@ -346,7 +242,7 @@ export class PlaygroundRunner {
           return;
         }
 
-        if (await this.isAnalyzerServerActive()) {
+        if (await this.serverManager.isAnalyzerServerActive()) {
           this.channel.appendLine("Analyzer server is ready");
           resolve(true);
           return;
@@ -371,7 +267,7 @@ export class PlaygroundRunner {
       );
       await execPromise("dotnet --version");
     } catch (error) {
-      this.printErrorToChannel(
+      this.channel.printErrorToChannel(
         "Cant find that the .NET SDK is installed or that PATH is accessible",
         error
       );

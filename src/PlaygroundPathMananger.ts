@@ -3,11 +3,12 @@ import { OutputChannel } from "vscode";
 import * as os from "os";
 import path from "path";
 import { getConfigSettings } from "./config";
+import { PlaygroundOutputChannel } from "./PlaygroundOutputChannel";
 
 
 export class PlaygroundPathMananger {
   private static instance: PlaygroundPathMananger | null;
-  public channel: OutputChannel | null = null;
+  public channel: PlaygroundOutputChannel | null = null;
   public extensionName = "csharp-playground";
   public homeDir = os.homedir();
   public extensionDirName = `.csharp_playground`;
@@ -43,7 +44,7 @@ export class PlaygroundPathMananger {
 
   public static getInstance(
     context: vscode.ExtensionContext,
-    channel: OutputChannel
+    channel: PlaygroundOutputChannel
   ) : PlaygroundPathMananger {
     if (!this.instance) {
       this.instance = new PlaygroundPathMananger();
@@ -63,35 +64,8 @@ export class PlaygroundPathMananger {
         path.join(context.extensionPath, "resources", "WelcomeMessage.cs")
       );
 
-      this.setAnalyzerServerAddresses();
     }
      return this.instance;
-  }
-
-  private static getAnalyzerServerEndpoints() {
-    const serverAddress = `http://localhost:${
-      getConfigSettings().analyzerServerPort
-    }`;
-    const hubAddress = `${serverAddress}/hub`;
-    const serverStatusAddress = `${serverAddress}/alive`;
-
-    return { serverAddress, hubAddress, serverStatusAddress };
-  }
-
-  private static setAnalyzerServerAddresses() {
-    if (!this.instance) {
-      return;
-    }
-
-    const { serverAddress, hubAddress, serverStatusAddress } =
-      this.getAnalyzerServerEndpoints();
-    this.instance.analyzerServerAddress = serverAddress;
-    this.instance.hubAddress = hubAddress;
-    this.instance.analyzerServerStatusAddress = serverStatusAddress;
-  }
-
-  public static refreshAnalyzerServerAddresses() {
-    this.setAnalyzerServerAddresses();
   }
 
   public static dispose() {

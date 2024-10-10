@@ -1,37 +1,31 @@
 using System.Text;
-using Microsoft.AspNetCore.SignalR;
+using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.Server.Kestrel.Core;
 using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp;
 using Microsoft.CodeAnalysis.CSharp.Scripting;
 using Microsoft.CodeAnalysis.CSharp.Syntax;
 using Microsoft.CodeAnalysis.Scripting;
-using Newtonsoft.Json;
 
 var builder = WebApplication.CreateBuilder(args);
-
-builder.Services.AddSignalR();
-builder.Services.AddCors(options =>
+builder.WebHost.ConfigureKestrel(serverOptions =>
 {
-    options.AddDefaultPolicy(policy =>
+    serverOptions.ConfigureEndpointDefaults(listenOptions =>
     {
-        policy
-            .AllowAnyOrigin()
-            .AllowAnyHeader()
-            .AllowAnyMethod();
+        listenOptions.Protocols = HttpProtocols.Http1AndHttp2AndHttp3;
     });
 });
 
 builder.Services.AddOutputCache();
+builder.Services.AddResponseCompression();
 builder.Services.AddScoped<IAnalyzer, Analyzer>();
 builder.Services.AddScoped<ITreeWalker, TreeWalker>();
 builder.Services.AddScoped<IConsoleOutRewriter, ConsoleOutRewriter>();
 
 var app = builder.Build();
 
-app.UseCors();
 app.UseOutputCache();
-
-app.MapHub<AnalyzerHub>("/hub");
+app.UseResponseCompression();
 
 app.MapGet("/alive", () =>
 {
@@ -39,9 +33,17 @@ app.MapGet("/alive", () =>
 })
 .CacheOutput();
 
+app.MapPost("/analyze", async (IAnalyzer analyzer, [FromBody] AnalyzeRequest request) =>
+{
+    var result = await analyzer.Analyze(request?.Code ?? "");
+    return Results.Json(result);
+});
+
 app.Run();
 
 // -- Types --
+record AnalyzeRequest(string Code);
+
 record AnalyzedDataItem(string Line, object Value);
 
 record SyntaxInfo(string VariableName, int LineIndex);
@@ -294,20 +296,6 @@ class TreeWalker() : CSharpSyntaxWalker, ITreeWalker
         }
 
         base.VisitPostfixUnaryExpression(node);
-    }
-}
-
-class AnalyzerHub(IAnalyzer analyzer) : Hub
-{
-    public async Task AnalyzeCode(string code)
-    {
-        if (code is null)
-        {
-            return;
-        }
-
-        var result = await analyzer.Analyze(code);
-        await Clients.Caller.SendAsync("AnalyzedData", JsonConvert.SerializeObject(result));
     }
 }
 
