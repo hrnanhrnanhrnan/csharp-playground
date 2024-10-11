@@ -30,8 +30,7 @@ export async function activate(context: vscode.ExtensionContext) {
   const extensionManager = new PlaygroundExtensionManager(context);
 
   const pathManager = PlaygroundPathMananger.getInstance(
-    context,
-    playgroundChannel
+    context
   );
 
   const serverManager = new AnalyzerServerManager(

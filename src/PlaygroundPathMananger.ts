@@ -8,8 +8,6 @@ import { PlaygroundOutputChannel } from "./PlaygroundOutputChannel";
 
 export class PlaygroundPathMananger {
   private static instance: PlaygroundPathMananger | null;
-  public channel: PlaygroundOutputChannel | null = null;
-  public extensionName = "csharp-playground";
   public homeDir = os.homedir();
   public extensionDirName = `.csharp_playground`;
   public analyzerServerDirPath = path.resolve(
@@ -28,13 +26,6 @@ export class PlaygroundPathMananger {
   public playgroundFilePath = path.resolve(
     path.join(this.playgroundDirPath, "Program.cs")
   );
-  public maxServerRetries = 30;
-  public analyzerServerTerminalName = "Analyzer-runner";
-  public playgorundRunnerTerminalName = "Playground-runner";
-  public platform = os.platform();
-  public shell = this.platform === "win32" ? "powershell.exe" : "/bin/bash";
-  public analyzerServerAddress = "";
-  public hubAddress = "";
   public analyzerServerCsProjResourcePath: string = "";
   public analyzerServerResourcePath: string = "";
   public analyzerWelcomeMessageResourcePath: string = "";
@@ -44,11 +35,9 @@ export class PlaygroundPathMananger {
 
   public static getInstance(
     context: vscode.ExtensionContext,
-    channel: PlaygroundOutputChannel
   ) : PlaygroundPathMananger {
     if (!this.instance) {
       this.instance = new PlaygroundPathMananger();
-      this.instance.channel = channel;
 
       this.instance.analyzerServerCsProjResourcePath = path.resolve(
         path.join(

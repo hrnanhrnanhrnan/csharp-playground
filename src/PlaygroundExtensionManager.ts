@@ -7,7 +7,7 @@ export class PlaygroundExtensionManager {
     private extensionVersionKey = `${extensionName}.extensionVersion`;
     private context: ExtensionContext;
 
-    constructor(context: ExtensionContext) {
+    private constructor(context: ExtensionContext) {
         this.context = context;
     }
 
