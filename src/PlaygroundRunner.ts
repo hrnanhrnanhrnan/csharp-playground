@@ -1,11 +1,8 @@
 import * as vscode from "vscode";
-import { exec } from "child_process";
 import { existsSync } from "fs";
 import path from "path";
-import { promisify } from "util";
 import { copyFile, mkdir, rm } from "fs/promises";
 import { AnalyzerServerManager } from "./AnalyzerServerManager";
-import { PlaygroundInlayHintsProvider } from "./PlaygroundInlayHintsProvider";
 import { PlaygroundPathMananger } from "./PlaygroundPathMananger";
 import {
   extensionName,
@@ -14,15 +11,14 @@ import {
   shell,
 } from "./constants";
 import { PlaygroundOutputChannel } from "./PlaygroundOutputChannel";
-
-const execPromise = promisify(exec);
+import { runExecCommand } from "./utils";
 
 export class PlaygroundRunner {
   public pathManager: PlaygroundPathMananger;
   private serverManager: AnalyzerServerManager;
   private channel: PlaygroundOutputChannel;
 
-  constructor(context: vscode.ExtensionContext, pathManager: PlaygroundPathMananger, serverManager: AnalyzerServerManager, channel: PlaygroundOutputChannel) {
+  constructor(pathManager: PlaygroundPathMananger, serverManager: AnalyzerServerManager, channel: PlaygroundOutputChannel) {
     this.pathManager = pathManager;
     this.channel = channel;
     this.serverManager = serverManager;
@@ -134,7 +130,7 @@ export class PlaygroundRunner {
     await mkdir(dirPath, { recursive: true });
 
     return (
-      (await this.runExecCommand("dotnet new console --force", dirPath)) &&
+      (await runExecCommand("dotnet new console --force", dirPath, this.channel)) &&
       (await this.safeCopyFile(
         this.pathManager.analyzerWelcomeMessageResourcePath,
         path.resolve(path.join(dirPath, "Program.cs"))
@@ -142,36 +138,13 @@ export class PlaygroundRunner {
     );
   }
 
-  async runExecCommand(command: string, cwd: string): Promise<boolean> {
-    try {
-      const { stdout, stderr } = await execPromise(command, {
-        cwd,
-        shell: shell,
-      });
-
-      if (stdout) {
-        this.channel.appendLine(stdout);
-      }
-
-      if (stderr) {
-        this.channel.appendLine(stderr);
-      }
-    } catch (error) {
-      this.channel.printErrorToChannel(
-        `Error occurred when trying to run command "${command}"`,
-        error
-      );
-      return false;
-    }
-
-    return true;
-  }
 
   shutdown() {
     this.disposeTerminals();
     this.removePlaygroundFromWorkspace();
   }
 
+// TODO: add to some filemanager
   async safeCopyFile(
     srcFilePath: string,
     destFilePath: string
@@ -198,9 +171,10 @@ export class PlaygroundRunner {
       }
 
       await mkdir(this.pathManager.analyzerServerDirPath, { recursive: true });
-      await this.runExecCommand(
+      await runExecCommand(
         "dotnet new web --force",
-        this.pathManager.analyzerServerDirPath
+        this.pathManager.analyzerServerDirPath,
+        this.channel
       );
 
       await this.safeCopyFile(
@@ -223,57 +197,34 @@ export class PlaygroundRunner {
     return true;
   }
 
-  public async analyzeCode(document: vscode.TextDocument) {
+  async analyzeCode(document: vscode.TextDocument) {
     return this.serverManager.analyzeCode(document.getText());
   }
 
   async waitForAnalyzerServerReady(token: vscode.CancellationToken) {
-    let tryCount = 0;
-
-    return new Promise<boolean>((resolve, reject) => {
-      const checkIfServerAlive = async () => {
-        this.channel.appendLine(
-          `Checking if Analyzer server is ready, try ${tryCount} of ${maxServerRetries}`
-        );
-        if (token.isCancellationRequested) {
+    let tryCount = 1;
+    
+    while (tryCount <= maxServerRetries) {
+      this.channel.appendLine(
+        `Checking if Analyzer server is ready, try ${tryCount} of ${maxServerRetries}`
+      );
+      
+      if (token.isCancellationRequested) {
           this.channel.appendLine(
             "Cancellation has been requested, cancelling checking analyzer server"
           );
-          return;
+          return false;
         }
-
+        
         if (await this.serverManager.isAnalyzerServerActive()) {
           this.channel.appendLine("Analyzer server is ready");
-          resolve(true);
-          return;
+          return true;
         }
-
+        
         tryCount++;
-        if (tryCount <= maxServerRetries) {
-          setTimeout(checkIfServerAlive, 1000);
-        } else {
-          reject(false);
-        }
+        await new Promise(resolve => setTimeout(resolve, 1000));
       };
 
-      checkIfServerAlive();
-    });
-  }
-
-  async isDotnetAvailable() {
-    try {
-      this.channel.appendLine(
-        "Checking that .NET SDK is installed and that PATH is accessible"
-      );
-      await execPromise("dotnet --version");
-    } catch (error) {
-      this.channel.printErrorToChannel(
-        "Cant find that the .NET SDK is installed or that PATH is accessible",
-        error
-      );
       return false;
     }
-
-    return true;
-  }
 }

@@ -1,6 +1,11 @@
 import path from "path";
-import { extensionName, platform } from "./constants";
+import { extensionName, platform, shell } from "./constants";
 import * as vscode from "vscode";
+import { promisify } from "util";
+import { exec } from "child_process";
+import { PlaygroundOutputChannel } from "./PlaygroundOutputChannel";
+
+export const execPromise = promisify(exec);
 
 export function equalPaths(firstPath: string, secondPath: string) {
   const firstPathNorm = path.resolve(firstPath);
@@ -23,4 +28,29 @@ export function equalPaths(firstPath: string, secondPath: string) {
     }
 
     vscode.window.showInformationMessage(alertMessage);
+  }
+
+  export async function runExecCommand(command: string, cwd: string, channel: PlaygroundOutputChannel): Promise<boolean> {
+    try {
+      const { stdout, stderr } = await execPromise(command, {
+        cwd,
+        shell: shell,
+      });
+
+      if (stdout) {
+        channel.appendLine(stdout);
+      }
+
+      if (stderr) {
+        channel.appendLine(stderr);
+      }
+    } catch (error) {
+      channel.printErrorToChannel(
+        `Error occurred when trying to run command "${command}"`,
+        error
+      );
+      return false;
+    }
+
+    return true;
   }

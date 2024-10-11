@@ -33,7 +33,7 @@ export class AnalyzerServerManager {
     this.serverStatusAddress = serverStatusAddress;
   }
 
-  public runServerInTerminal(): vscode.Terminal {
+  runServerInTerminal(): vscode.Terminal {
     const analyzerServerTerminal = vscode.window.createTerminal({
       name: this.analyzerServerTerminalName,
       cwd: this.serverDirPath,
@@ -49,7 +49,7 @@ export class AnalyzerServerManager {
     return analyzerServerTerminal;
   }
 
-  public disposeServer() {
+  disposeServer() {
     const terminal = vscode.window.terminals.find(
       (x) => x.name === this.analyzerServerTerminalName
     );
@@ -61,7 +61,7 @@ export class AnalyzerServerManager {
     terminal.dispose();
   }
 
-  public async analyzeCode(code: string) {
+  async analyzeCode(code: string) {
     try {
       const payload = { code: code };
       const response = await fetch(this.serverAnalyzeAddress!, {
@@ -89,7 +89,7 @@ export class AnalyzerServerManager {
     }
   }
 
-  public async isAnalyzerServerActive(): Promise<boolean> {
+  async isAnalyzerServerActive(): Promise<boolean> {
     try {
       const response = await fetch(this.serverStatusAddress!);
 

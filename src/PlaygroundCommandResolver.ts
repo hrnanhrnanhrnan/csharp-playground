@@ -1,21 +1,22 @@
 import { PlaygroundRunner } from "./PlaygroundRunner";
 import * as vscode from "vscode";
-import { alertUser, equalPaths } from "./utils";
+import { alertUser } from "./utils";
 import { extensionName } from "./constants";
+import { PlaygroundExtensionManager } from "./PlaygroundExtensionManager";
 
 export class PlaygroundCommandResolver {
   private newPlaygroundCommandName = `${extensionName}.newPlayground`;
   private continuePlaygroundCommandName = `${extensionName}.continuePlayground`;
   private stopPlaygroundCommandName = `${extensionName}.stopPlayground`;
   private playgroundRunner: PlaygroundRunner;
-  private context: vscode.ExtensionContext;
+  private extensionManager: PlaygroundExtensionManager;
 
   constructor(
-    context: vscode.ExtensionContext,
-    playgroundRunner: PlaygroundRunner
+    playgroundRunner: PlaygroundRunner,
+    extensionManager: PlaygroundExtensionManager
   ) {
-    this.context = context;
     this.playgroundRunner = playgroundRunner;
+    this.extensionManager = extensionManager;
   }
 
   async resolveRegisterCommands() {
@@ -50,7 +51,7 @@ export class PlaygroundCommandResolver {
   }
 
   private async startPlayground(type: PlaygroundType) {
-    if (!(await this.playgroundRunner.isDotnetAvailable())) {
+    if (!this.extensionManager.isDotnetInstalled) {
       alertUser(
         "Cant find that .NET SDK is installed or that PATH is accessible. Have you recently installed, try to reload vscode",
         "error"

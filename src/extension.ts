@@ -12,7 +12,6 @@ import { PlaygroundCommandResolver } from "./PlaygroundCommandResolver";
 import { PlaygroundExtensionManager } from "./PlaygroundExtensionManager";
 import { PlaygroundEventHandlerResolver } from "./PlaygroundEventHandlerResolver";
 
-let isDotnetInstalled = false;
 let playgroundRunner: PlaygroundRunner | undefined;
 
 export async function activate(context: vscode.ExtensionContext) {
@@ -27,7 +26,7 @@ export async function activate(context: vscode.ExtensionContext) {
     inlayHintsProvider
   );
 
-  const extensionManager = new PlaygroundExtensionManager(context);
+  const extensionManager = await PlaygroundExtensionManager.createInstance(context, playgroundChannel);
 
   const pathManager = PlaygroundPathMananger.getInstance(
     context
@@ -40,7 +39,6 @@ export async function activate(context: vscode.ExtensionContext) {
   );
 
   playgroundRunner = new PlaygroundRunner(
-    context,
     pathManager,
     serverManager,
     playgroundChannel
@@ -49,19 +47,14 @@ export async function activate(context: vscode.ExtensionContext) {
   const eventHandlerResolver = new PlaygroundEventHandlerResolver(playgroundRunner);
   eventHandlerResolver.resolveEventHandlers();
 
-  const commandResolver = new PlaygroundCommandResolver(context, playgroundRunner);
+  const commandResolver = new PlaygroundCommandResolver(playgroundRunner, extensionManager);
   const [
     newCommandDisposable,
     continueCommandDisposable,
     stopCommandDisposable,
   ] = await commandResolver.resolveRegisterCommands();
 
-  if (extensionManager.isUpdated()) {
-    await playgroundRunner.removeAnalyzerServerFromDisk();
-  }
-
-  isDotnetInstalled = await playgroundRunner.isDotnetAvailable();
-  if (!isDotnetInstalled) {
+  if (!extensionManager.isDotnetInstalled) {
     alertUser(
       `Cant find that the .NET SDK is installed or that PATH is accessible. 
         Make sure that the .NET SDK is installed and that dotnet is added to PATH`,
@@ -69,6 +62,10 @@ export async function activate(context: vscode.ExtensionContext) {
     );
   }
   
+  if (extensionManager.isUpdated()) {
+    await playgroundRunner.removeAnalyzerServerFromDisk();
+  }
+
   context.subscriptions.push(inlayHintsDisposable);
   context.subscriptions.push(newCommandDisposable);
   context.subscriptions.push(continueCommandDisposable);
