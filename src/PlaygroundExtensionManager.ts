@@ -7,6 +7,7 @@ export class PlaygroundExtensionManager {
     private extensionVersionKey = `${extensionName}.extensionVersion`;
     private context: ExtensionContext;
 
+// TODO: implement factorymethod
     constructor(context: ExtensionContext) {
         this.context = context;
     }
