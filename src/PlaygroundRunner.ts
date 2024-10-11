@@ -172,6 +172,7 @@ export class PlaygroundRunner {
     this.removePlaygroundFromWorkspace();
   }
 
+// TODO: add to some filemanager
   async safeCopyFile(
     srcFilePath: string,
     destFilePath: string
@@ -227,6 +228,7 @@ export class PlaygroundRunner {
     return this.serverManager.analyzeCode(document.getText());
   }
 
+// TODO: change to while loop and maybe return tuple or specified type
   async waitForAnalyzerServerReady(token: vscode.CancellationToken) {
     let tryCount = 0;
 
@@ -260,6 +262,7 @@ export class PlaygroundRunner {
     });
   }
 
+// TODO: move to extension manager
   async isDotnetAvailable() {
     try {
       this.channel.appendLine(
