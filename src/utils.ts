@@ -30,7 +30,7 @@ export function equalPaths(firstPath: string, secondPath: string) {
     vscode.window.showInformationMessage(alertMessage);
   }
 
-  export async function runExecCommand(command: string, cwd: string, channel: PlaygroundOutputChannel): Promise<boolean> {
+  export async function runExecCommand(command: string, cwd: string, channel: PlaygroundOutputChannel): Promise<[string, boolean]> {
     try {
       const { stdout, stderr } = await execPromise(command, {
         cwd,
@@ -39,18 +39,20 @@ export function equalPaths(firstPath: string, secondPath: string) {
 
       if (stdout) {
         channel.appendLine(stdout);
+        return [stdout, true];
       }
 
       if (stderr) {
         channel.appendLine(stderr);
+        return [stderr, false];
       }
     } catch (error) {
       channel.printErrorToChannel(
         `Error occurred when trying to run command "${command}"`,
         error
       );
-      return false;
+      return [new Error(String(error)).message, false];
     }
 
-    return true;
+    return ["", true];
   }

@@ -12,13 +12,21 @@ import {
 } from "./constants";
 import { PlaygroundOutputChannel } from "./PlaygroundOutputChannel";
 import { runExecCommand } from "./utils";
+import { PlaygroundExtensionManager } from "./PlaygroundExtensionManager";
 
-export class PlaygroundRunner {
-  public pathManager: PlaygroundPathMananger;
+export class PlaygroundManager {
+  private extensionManager: PlaygroundExtensionManager;
   private serverManager: AnalyzerServerManager;
   private channel: PlaygroundOutputChannel;
+  public pathManager: PlaygroundPathMananger;
 
-  constructor(pathManager: PlaygroundPathMananger, serverManager: AnalyzerServerManager, channel: PlaygroundOutputChannel) {
+  constructor(
+    extensionManager: PlaygroundExtensionManager,
+    pathManager: PlaygroundPathMananger,
+    serverManager: AnalyzerServerManager,
+    channel: PlaygroundOutputChannel
+  ) {
+    this.extensionManager = extensionManager;
     this.pathManager = pathManager;
     this.channel = channel;
     this.serverManager = serverManager;
@@ -34,17 +42,20 @@ export class PlaygroundRunner {
     }
 
     try {
-      await rm(this.pathManager.analyzerServerDirPath, { recursive: true, force: true });
+      await rm(this.pathManager.analyzerServerDirPath, {
+        recursive: true,
+        force: true,
+      });
     } catch (error) {
-      this.channel.printErrorToChannel("Following error occurred trying to remove Analyzer server from disk", error);
+      this.channel.printErrorToChannel(
+        "Following error occurred trying to remove Analyzer server from disk",
+        error
+      );
     }
   }
 
-  async openTextDocument(): Promise<{
-    error: Error | undefined;
-    document: vscode.TextDocument | undefined;
-  }> {
-    let document: vscode.TextDocument | undefined;
+  async openTextDocument(): Promise<Result<vscode.TextDocument>> {
+    let document: vscode.TextDocument | null;
     try {
       const uri = vscode.Uri.file(this.pathManager.playgroundFilePath);
       document = await vscode.workspace.openTextDocument(uri);
@@ -54,14 +65,11 @@ export class PlaygroundRunner {
         `Error occurred when trying to open file at "${this.pathManager.playgroundFilePath}"`,
         error
       );
-      if (error instanceof Error) {
-        return { error, document };
-      }
 
-      return { error: new Error(String(error)), document };
+      return [null, (error as Error) ?? new Error(String(error))];
     }
 
-    return { error: undefined, document };
+    return [document, null];
   }
 
   addPlaygroundToWorkspace(): boolean {
@@ -86,9 +94,10 @@ export class PlaygroundRunner {
     vscode.workspace.updateWorkspaceFolders(playgroundWorkspaceFolder.index, 1);
   }
 
-  runPlaygroundInTerminal() {
-    const analyzerServerTerminal = this.serverManager.runServerInTerminal();
-    
+  async runPlaygroundInTerminal() {
+    const analyzerServerTerminal =
+      await this.serverManager.runServerInTerminal();
+
     const playgroundTerminal = vscode.window.createTerminal({
       name: playgroundRunnerTerminalName,
       cwd: this.pathManager.playgroundDirPath,
@@ -98,16 +107,15 @@ export class PlaygroundRunner {
       },
     });
 
-    analyzerServerTerminal.show(true);
     playgroundTerminal.sendText("dotnet watch run");
+    analyzerServerTerminal.show(true);
     playgroundTerminal.show(true);
   }
 
   disposeTerminals() {
     this.serverManager.disposeServer();
     const playgroundTerminal = vscode.window.terminals.find(
-      (x) =>
-        x.name === playgroundRunnerTerminalName
+      (x) => x.name === playgroundRunnerTerminalName
     );
 
     if (!playgroundTerminal) {
@@ -125,12 +133,31 @@ export class PlaygroundRunner {
     return playgroundWorkspaceFolder !== undefined;
   }
 
-  async createCsharp(): Promise<boolean> {
+  async createCsharp(dotneVersion: number | undefined): Promise<boolean> {
     const dirPath = this.pathManager.playgroundDirPath;
     await mkdir(dirPath, { recursive: true });
 
+    const wantedVersion = this.extensionManager.installedDotnetVersions[dotneVersion ?? 0];
+    const versionArg = wantedVersion
+      ? `-f ${wantedVersion}`
+      : "";
+
     return (
-      (await runExecCommand("dotnet new console --force", dirPath, this.channel)) &&
+      (await runExecCommand(
+          `dotnet new sln --force`,
+        dirPath,
+        this.channel
+      )) &&
+      (await runExecCommand(
+        `dotnet new console --force ${versionArg}`,
+        dirPath,
+        this.channel
+      )) &&
+      (await runExecCommand(
+        `dotnet sln add ${path.basename(dirPath)}.csproj`,
+        dirPath,
+        this.channel
+      )) &&
       (await this.safeCopyFile(
         this.pathManager.analyzerWelcomeMessageResourcePath,
         path.resolve(path.join(dirPath, "Program.cs"))
@@ -138,13 +165,12 @@ export class PlaygroundRunner {
     );
   }
 
-
   shutdown() {
     this.disposeTerminals();
     this.removePlaygroundFromWorkspace();
   }
 
-// TODO: add to some filemanager
+  // TODO: add to some filemanager
   async safeCopyFile(
     srcFilePath: string,
     destFilePath: string
@@ -177,10 +203,12 @@ export class PlaygroundRunner {
         this.channel
       );
 
-      await this.safeCopyFile(
-        this.pathManager.analyzerServerCsProjResourcePath,
-        this.pathManager.analyzerServerCsProjFilePath
+      await runExecCommand(
+        "dotnet add package Microsoft.CodeAnalysis.CSharp.Scripting",
+        this.pathManager.analyzerServerDirPath,
+        this.channel
       );
+
       await this.safeCopyFile(
         this.pathManager.analyzerServerResourcePath,
         this.pathManager.analyzerServerFilePath
@@ -203,28 +231,28 @@ export class PlaygroundRunner {
 
   async waitForAnalyzerServerReady(token: vscode.CancellationToken) {
     let tryCount = 1;
-    
+
     while (tryCount <= maxServerRetries) {
       this.channel.appendLine(
         `Checking if Analyzer server is ready, try ${tryCount} of ${maxServerRetries}`
       );
-      
-      if (token.isCancellationRequested) {
-          this.channel.appendLine(
-            "Cancellation has been requested, cancelling checking analyzer server"
-          );
-          return false;
-        }
-        
-        if (await this.serverManager.isAnalyzerServerActive()) {
-          this.channel.appendLine("Analyzer server is ready");
-          return true;
-        }
-        
-        tryCount++;
-        await new Promise(resolve => setTimeout(resolve, 1000));
-      };
 
-      return false;
+      if (token.isCancellationRequested) {
+        this.channel.appendLine(
+          "Cancellation has been requested, cancelling checking analyzer server"
+        );
+        return false;
+      }
+
+      if (await this.serverManager.isAnalyzerServerActive()) {
+        this.channel.appendLine("Analyzer server is ready");
+        return true;
+      }
+
+      tryCount++;
+      await new Promise((resolve) => setTimeout(resolve, 1000));
     }
+
+    return false;
+  }
 }

@@ -1,8 +1,7 @@
 // The module 'vscode' contains the VS Code extensibility API
 // Import the module and reference it with the alias vscode in your code below
 import * as vscode from "vscode";
-import { extensionName } from "./constants";
-import { PlaygroundRunner } from "./PlaygroundRunner";
+import { PlaygroundManager } from "./PlaygroundManager";
 import { alertUser } from "./utils";
 import { PlaygroundInlayHintsProvider } from "./PlaygroundInlayHintsProvider";
 import { AnalyzerServerManager } from "./AnalyzerServerManager";
@@ -11,8 +10,9 @@ import { PlaygroundPathMananger } from "./PlaygroundPathMananger";
 import { PlaygroundCommandResolver } from "./PlaygroundCommandResolver";
 import { PlaygroundExtensionManager } from "./PlaygroundExtensionManager";
 import { PlaygroundEventHandlerResolver } from "./PlaygroundEventHandlerResolver";
+import { extensionName } from "./constants";
 
-let playgroundRunner: PlaygroundRunner | undefined;
+let playgroundManager: PlaygroundManager | undefined;
 
 export async function activate(context: vscode.ExtensionContext) {
   console.log(`The "${extensionName}" extension is now active!`);
@@ -32,22 +32,24 @@ export async function activate(context: vscode.ExtensionContext) {
     context
   );
 
-  const serverManager = new AnalyzerServerManager(
+  const serverManager = await AnalyzerServerManager.createInstance(
+    context,
     pathManager.analyzerServerDirPath,
     inlayHintsProvider,
     playgroundChannel
   );
 
-  playgroundRunner = new PlaygroundRunner(
+  playgroundManager = new PlaygroundManager(
+    extensionManager,
     pathManager,
     serverManager,
     playgroundChannel
   );
 
-  const eventHandlerResolver = new PlaygroundEventHandlerResolver(playgroundRunner);
+  const eventHandlerResolver = new PlaygroundEventHandlerResolver(playgroundManager);
   eventHandlerResolver.resolveEventHandlers();
 
-  const commandResolver = new PlaygroundCommandResolver(playgroundRunner, extensionManager);
+  const commandResolver = new PlaygroundCommandResolver(playgroundManager, extensionManager);
   const [
     newCommandDisposable,
     continueCommandDisposable,
@@ -57,13 +59,13 @@ export async function activate(context: vscode.ExtensionContext) {
   if (!extensionManager.isDotnetInstalled) {
     alertUser(
       `Cant find that the .NET SDK is installed or that PATH is accessible. 
-        Make sure that the .NET SDK is installed and that dotnet is added to PATH`,
+        Make sure that the .NET SDK is installed and that dotnet is added to PATH.`,
       "error"
     );
   }
   
   if (extensionManager.isUpdated()) {
-    await playgroundRunner.removeAnalyzerServerFromDisk();
+    await playgroundManager.removeAnalyzerServerFromDisk();
   }
 
   context.subscriptions.push(inlayHintsDisposable);
@@ -73,5 +75,5 @@ export async function activate(context: vscode.ExtensionContext) {
 }
 
 export async function deactivate() {
-  playgroundRunner?.shutdown();
+  playgroundManager?.shutdown();
 }

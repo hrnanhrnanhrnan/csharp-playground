@@ -1,6 +1,6 @@
+using System.Net;
 using System.Text;
 using Microsoft.AspNetCore.Mvc;
-using Microsoft.AspNetCore.Server.Kestrel.Core;
 using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp;
 using Microsoft.CodeAnalysis.CSharp.Scripting;
@@ -8,45 +8,34 @@ using Microsoft.CodeAnalysis.CSharp.Syntax;
 using Microsoft.CodeAnalysis.Scripting;
 
 var builder = WebApplication.CreateBuilder(args);
-builder.WebHost.ConfigureKestrel(serverOptions =>
-{
-    serverOptions.ConfigureEndpointDefaults(listenOptions =>
-    {
-        listenOptions.Protocols = HttpProtocols.Http1AndHttp2AndHttp3;
-    });
-});
 
-builder.Services.AddOutputCache();
-builder.Services.AddResponseCompression();
 builder.Services.AddScoped<IAnalyzer, Analyzer>();
 builder.Services.AddScoped<ITreeWalker, TreeWalker>();
 builder.Services.AddScoped<IConsoleOutRewriter, ConsoleOutRewriter>();
 
 var app = builder.Build();
 
-app.UseOutputCache();
-app.UseResponseCompression();
+app.Use(Statics.OnlyLocalhostAllowedMiddleware);
 
 app.MapGet("/alive", () =>
 {
-    return "Im Alive!";
-})
-.CacheOutput();
+    return;
+});
 
 app.MapPost("/analyze", async (IAnalyzer analyzer, [FromBody] AnalyzeRequest request) =>
 {
-    var result = await analyzer.Analyze(request?.Code ?? "");
+    var result = await analyzer.Analyze(request.Code);
     return Results.Json(result);
 });
 
 app.Run();
 
 // -- Types --
-record AnalyzeRequest(string Code);
+sealed record AnalyzeRequest(string Code);
 
-record AnalyzedDataItem(string Line, object Value);
+sealed record AnalyzedDataItem(string Line, object Value);
 
-record SyntaxInfo(string VariableName, int LineIndex);
+sealed record SyntaxInfo(string VariableName, int LineIndex);
 
 interface IAnalyzer
 {
@@ -65,7 +54,7 @@ interface IConsoleOutRewriter
     SyntaxNode? Visit(SyntaxNode? node);
 }
 
-class Analyzer(
+sealed class Analyzer(
     ITreeWalker treeWalker,
     IConsoleOutRewriter consoleOutRewriter)
     : IAnalyzer
@@ -81,6 +70,11 @@ class Analyzer(
     public async Task<List<AnalyzedDataItem>> Analyze(string code)
     {
         List<AnalyzedDataItem> analyzedData = [];
+
+        if (code is null)
+        {
+            return analyzedData;
+        }
 
         var syntaxTree = CSharpSyntaxTree.ParseText(code);
         var root = syntaxTree.GetCompilationUnitRoot();
@@ -115,7 +109,7 @@ class Analyzer(
                 continue;
             }
 
-            analyzedData.Add(new(lines[syntaxInfo.LineIndex].TrimEnd(), variable.Value));
+            analyzedData.Add(new(lines[syntaxInfo.LineIndex], variable.Value));
         }
 
         analyzedData.AddRange(writeLines);
@@ -158,7 +152,7 @@ class Analyzer(
 
         var capturedWritelines = consoleCapturer
             .Lines
-            .Select(x => new AnalyzedDataItem(lines[Statics.GetWriteLineLineIndex(x)].TrimEnd(), Statics.GetWriteLineValue(x)))
+            .Select(x => new AnalyzedDataItem(lines[Statics.GetWriteLineLineIndex(x)], Statics.GetWriteLineValue(x)))
             .ToArray();
 
         return (scriptState!, capturedWritelines ?? []);
@@ -167,6 +161,8 @@ class Analyzer(
 
 static class Statics
 {
+    private const string ForbiddenAccessResponseMessage = "Forbidden: Access is only allowed from localhost";
+
     public static readonly string[] WriteLineClassesToCheck = [
         "Console",
         "System.Console",
@@ -205,16 +201,32 @@ static class Statics
         MetadataReference.CreateFromFile(typeof(Console).Assembly.Location)
     ];
 
-    public const string WriteLineAdjuster = @"
+    public const string WriteLineAdjusterClassName = "WriteLineAdjuster81927381273916428631286418926491624123123";
 
-public static class WriteLineAdjuster81927381273916428631286418926491624123123
-{
-    public static void AdjustWriteLine(int lineNumber, object value)
-    {
-        Console.WriteLine($""{lineNumber}:{value}"");
-    }
-}
+    public const string WriteLineAdjusterMethodName = "AdjustWriteLine";
+
+    public const string WriteLineAdjuster = $@"
+public static class {WriteLineAdjusterClassName}
+{{
+    public static void {WriteLineAdjusterMethodName}(int lineNumber, object value)
+    {{
+        Console.WriteLine($""{{lineNumber}}:{{value}}"");
+    }}
+}}
 ";
+
+    public static Func<HttpContext, Func<Task>, Task> OnlyLocalhostAllowedMiddleware = async (HttpContext context, Func<Task> next) =>
+    {
+        if (context.Connection.RemoteIpAddress is not IPAddress remoteIpAddress
+            || !IPAddress.IsLoopback(remoteIpAddress))
+        {
+            context.Response.StatusCode = StatusCodes.Status403Forbidden;
+            await context.Response.WriteAsync(ForbiddenAccessResponseMessage);
+            return;
+        }
+
+        await next();
+    };
 
     public static int GetNodeLineIndex(SyntaxNode node)
         => node.GetLocation().GetLineSpan().StartLinePosition.Line;
@@ -241,7 +253,7 @@ public static class WriteLineAdjuster81927381273916428631286418926491624123123
     }
 }
 
-class TreeWalker() : CSharpSyntaxWalker, ITreeWalker
+sealed class TreeWalker() : CSharpSyntaxWalker, ITreeWalker
 {
     private SemanticModel? _semanticModel;
     public List<SyntaxInfo> Results { get; } = [];
@@ -299,7 +311,7 @@ class TreeWalker() : CSharpSyntaxWalker, ITreeWalker
     }
 }
 
-class ConsoleOutRewriter : CSharpSyntaxRewriter, IConsoleOutRewriter
+sealed class ConsoleOutRewriter : CSharpSyntaxRewriter, IConsoleOutRewriter
 {
     public override SyntaxNode VisitInvocationExpression(InvocationExpressionSyntax node)
     {
@@ -340,8 +352,8 @@ class ConsoleOutRewriter : CSharpSyntaxRewriter, IConsoleOutRewriter
                 var modifiedInvocation = node.WithExpression(
                     SyntaxFactory.MemberAccessExpression(
                         SyntaxKind.SimpleMemberAccessExpression,
-                        SyntaxFactory.IdentifierName("WriteLineAdjuster81927381273916428631286418926491624123123"),
-                        SyntaxFactory.IdentifierName("AdjustWriteLine")))
+                        SyntaxFactory.IdentifierName(Statics.WriteLineAdjusterClassName),
+                        SyntaxFactory.IdentifierName(Statics.WriteLineAdjusterMethodName)))
                     .WithArgumentList(modifiedArguments);
 
                 return modifiedInvocation;
@@ -366,7 +378,7 @@ class ConsoleOutRewriter : CSharpSyntaxRewriter, IConsoleOutRewriter
         };
 }
 
-class ConsoleCapturer : TextWriter
+sealed class ConsoleCapturer : TextWriter
 {
     private readonly List<string?> _lines = [];
 

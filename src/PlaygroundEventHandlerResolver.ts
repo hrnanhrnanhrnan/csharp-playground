@@ -1,12 +1,13 @@
 import * as vscode from "vscode";
-import { PlaygroundRunner } from "./PlaygroundRunner";
+
 import { equalPaths } from "./utils";
+import { PlaygroundManager } from "./PlaygroundManager";
 
 export class PlaygroundEventHandlerResolver {
-    private playgroundRunner: PlaygroundRunner;
+    private playgroundManager: PlaygroundManager;
 
-    constructor(playgroundRunner: PlaygroundRunner) {
-        this.playgroundRunner = playgroundRunner;
+    constructor(playgroundManager: PlaygroundManager) {
+        this.playgroundManager = playgroundManager;
     }
 
     resolveEventHandlers() {
@@ -18,13 +19,13 @@ export class PlaygroundEventHandlerResolver {
     if (
         !equalPaths(
         document.uri.fsPath,
-        this.playgroundRunner.pathManager.playgroundFilePath ?? ""
+        this.playgroundManager.pathManager.playgroundFilePath ?? ""
         )
     ) {
         return;
     }
 
-    await this.playgroundRunner.analyzeCode(document);
+    return this.playgroundManager.analyzeCode(document);
     });
   }
 }

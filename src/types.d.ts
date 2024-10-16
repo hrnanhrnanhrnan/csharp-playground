@@ -4,7 +4,9 @@ type AnalyzedDataItem = {
 };
 
 type ConfigSettings = {
-    analyzerServerPort?: number
+    dotnetVersion?: number
 }
 
 type PlaygroundType = "New" | "Continue";
+
+type Result<T> = [T, null] | [null, Error];

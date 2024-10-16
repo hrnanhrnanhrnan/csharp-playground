@@ -5,11 +5,15 @@
   "version": "0.0.1",
   "publisher": "hrnan",
   "engines": {
-    "vscode": "^1.93.0"
+    "vscode": "^1.63.0"
   },
   "categories": [
     "Other"
   ],
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/hrnanhrnanhrnan/csharp-playground"
+  },
   "main": "./dist/extension.js",
   "activationEvents": [
     "onCommand:csharp-playground.newPlayground",
@@ -18,10 +22,9 @@
     "onStartupFinished"
   ],
   "properties": {
-    "csharp-playground.analyzerServerPort": {
+    "csharp-playground.dotnetVersion": {
       "type": "number",
-      "default": 5140,
-      "description": "Edit the port for the analyzer server to run at"
+      "description": "Specify the version of .NET to use when initializing a new playground. For example specify 8 to use net8. Unspecified or invalid version will run latest installed."
     }
   },
   "contributes": {
@@ -40,6 +43,7 @@
       }
     ]
   },
+  "license": "MIT",
   "scripts": {
     "vscode:prepublish": "npm run package",
     "compile": "npm run check-types && npm run lint && node esbuild.js",
@@ -55,15 +59,15 @@
     "test": "vscode-test"
   },
   "devDependencies": {
-    "@types/mocha": "^10.0.7",
-    "@types/node": "20.x",
-    "@types/vscode": "^1.93.0",
-    "@typescript-eslint/eslint-plugin": "^8.3.0",
-    "@typescript-eslint/parser": "^8.3.0",
+    "@types/mocha": "^10.0.9",
+    "@types/node": "22.7.5",
+    "@types/vscode": "^1.63.0",
+    "@typescript-eslint/eslint-plugin": "^8.9.0",
+    "@typescript-eslint/parser": "^8.9.0",
     "@vscode/test-cli": "^0.0.10",
     "@vscode/test-electron": "^2.4.1",
     "esbuild": "^0.24.0",
-    "eslint": "^9.9.1",
+    "eslint": "^9.12.0",
     "npm-run-all": "^4.1.5",
     "typescript": "^5.5.4"
   },

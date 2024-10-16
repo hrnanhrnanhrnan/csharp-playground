@@ -1,21 +1,22 @@
-import { PlaygroundRunner } from "./PlaygroundRunner";
+import { PlaygroundManager } from "./PlaygroundManager";
 import * as vscode from "vscode";
 import { alertUser } from "./utils";
-import { extensionName } from "./constants";
 import { PlaygroundExtensionManager } from "./PlaygroundExtensionManager";
+import { getConfigSettings } from "./config";
+import { extensionName } from "./constants";
 
 export class PlaygroundCommandResolver {
   private newPlaygroundCommandName = `${extensionName}.newPlayground`;
   private continuePlaygroundCommandName = `${extensionName}.continuePlayground`;
   private stopPlaygroundCommandName = `${extensionName}.stopPlayground`;
-  private playgroundRunner: PlaygroundRunner;
+  private playgroundManager: PlaygroundManager;
   private extensionManager: PlaygroundExtensionManager;
 
   constructor(
-    playgroundRunner: PlaygroundRunner,
+    playgroundManager: PlaygroundManager,
     extensionManager: PlaygroundExtensionManager
   ) {
-    this.playgroundRunner = playgroundRunner;
+    this.playgroundManager = playgroundManager;
     this.extensionManager = extensionManager;
   }
 
@@ -47,7 +48,7 @@ export class PlaygroundCommandResolver {
   }
 
   private stopPlayground() {
-    this.playgroundRunner.shutdown();
+    this.playgroundManager.shutdown();
   }
 
   private async startPlayground(type: PlaygroundType) {
@@ -70,11 +71,13 @@ export class PlaygroundCommandResolver {
           this.stopPlayground();
         });
 
-        this.playgroundRunner.clearPlayground();
+        const config = getConfigSettings();
 
-        progress.report({ message: "Setting up the playgorund..." });
+        this.playgroundManager.clearPlayground();
 
-        if (type === "New" && !(await this.playgroundRunner.createCsharp())) {
+        progress.report({ message: "Setting up the playground..." });
+
+        if (type === "New" && !(await this.playgroundManager.createCsharp(config.dotnetVersion))) {
           alertUser(
             "It went wrong creating the project, look in output",
             "error"
@@ -84,7 +87,7 @@ export class PlaygroundCommandResolver {
 
         progress.report({ message: "Setting up the analyzer server..." });
 
-        if (!(await this.playgroundRunner.tryCreateAnalyzerServer())) {
+        if (!(await this.playgroundManager.tryCreateAnalyzerServer())) {
           alertUser(
             `Something went wrong trying to create analyzer server, check output for more information`,
             "error"
@@ -93,23 +96,25 @@ export class PlaygroundCommandResolver {
           return;
         }
 
-        this.playgroundRunner.runPlaygroundInTerminal();
+        await this.playgroundManager.runPlaygroundInTerminal();
 
         progress.report({ message: "Waiting for analyzer server..." });
 
         const isServerReadyPromise =
-          this.playgroundRunner.waitForAnalyzerServerReady(token);
+          this.playgroundManager.waitForAnalyzerServerReady(token);
 
-        const { error, document } =
-          await this.playgroundRunner.openTextDocument();
+        const [document, error] =
+          await this.playgroundManager.openTextDocument();
         if (error) {
           alertUser("It went wrong opening the file, look in output", "error");
           return;
         }
 
+
+
         const isServerReady = await isServerReadyPromise;
         if (!isServerReady) {
-          this.playgroundRunner.disposeTerminals();
+          this.playgroundManager.disposeTerminals();
           alertUser(
             `Could not start Analyzer server, check output for more information`,
             "error"
@@ -120,8 +125,8 @@ export class PlaygroundCommandResolver {
 
         progress.report({ message: "Setting up workspace..." });
 
-        if (!this.playgroundRunner.isPlaygroundInWorkspace()) {
-          this.playgroundRunner.addPlaygroundToWorkspace();
+        if (!this.playgroundManager.isPlaygroundInWorkspace()) {
+          this.playgroundManager.addPlaygroundToWorkspace();
         }
 
         alertUser(`Succesfully created and launched a playground`, "success");

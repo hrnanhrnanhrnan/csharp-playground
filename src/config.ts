@@ -1,10 +1,10 @@
-import { extensionName, defaultPort } from "./constants";
 import { workspace } from "vscode";
+import { extensionName } from "./constants";
 
 export function getConfigSettings(): ConfigSettings {
   const config = workspace.getConfiguration(extensionName);
 
   return {
-    analyzerServerPort: config.get<number>("analyzerServerPort") ?? defaultPort,
+    dotnetVersion: config.get<number>("dotnetVersion"),
   };
 }
