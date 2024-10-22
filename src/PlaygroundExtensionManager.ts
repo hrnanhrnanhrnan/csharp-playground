@@ -10,6 +10,7 @@ export class PlaygroundExtensionManager {
   private context: ExtensionContext;
   public isDotnetInstalled = false;
   public installedDotnetVersions: Record<number, string>;
+  public isProduction: boolean;
 
   private constructor(
     context: ExtensionContext,
@@ -18,6 +19,7 @@ export class PlaygroundExtensionManager {
     this.context = context;
     this.installedDotnetVersions = installedDotnetVersions;
     this.isDotnetInstalled = Object.keys(installedDotnetVersions).length > 0;
+    this.isProduction = context.extensionMode === vscode.ExtensionMode.Production;
   }
 
   static async createInstance(

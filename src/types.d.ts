@@ -10,3 +10,14 @@ type ConfigSettings = {
 type PlaygroundType = "New" | "Continue";
 
 type Result<T> = [T, null] | [null, Error];
+
+interface IPlaygroundStateManager {
+    getState: () => Promise<PlaygroundState>
+    updateState: (updatedState: PlaygroundState) => Promise<boolean>
+    resetState: () => Promise<void>
+}
+
+type PlaygroundState = {
+    playgroundStarted: boolean
+    typeOfPlayground?: PlaygroundType
+}

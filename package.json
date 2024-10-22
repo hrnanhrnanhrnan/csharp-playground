@@ -19,6 +19,8 @@
     "onCommand:csharp-playground.newPlayground",
     "onCommand:csharp-playground.continuePlayground",
     "onCommand:csharp-playground.stopPlayground",
+    "onCommand:csharp-playground.test",
+    "workspaceContains:.playground",
     "onStartupFinished"
   ],
   "properties": {

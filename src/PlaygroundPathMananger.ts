@@ -1,17 +1,16 @@
 import * as vscode from "vscode";
-import { OutputChannel } from "vscode";
 import * as os from "os";
 import path from "path";
-import { getConfigSettings } from "./config";
-import { PlaygroundOutputChannel } from "./PlaygroundOutputChannel";
-
 
 export class PlaygroundPathMananger {
   private static instance: PlaygroundPathMananger | null;
   public homeDir = os.homedir();
   public extensionDirName = `.csharp_playground`;
+  public extensionDirPath = path.resolve(
+    path.join(this.homeDir, this.extensionDirName)
+  );
   public analyzerServerDirPath = path.resolve(
-    path.join(this.homeDir, this.extensionDirName, "analyzer")
+    path.join(this.extensionDirPath, "analyzer")
   );
   public analyzerServerFilePath = path.resolve(
     path.join(this.analyzerServerDirPath, "Program.cs")
@@ -20,7 +19,7 @@ export class PlaygroundPathMananger {
     path.join(this.analyzerServerDirPath, "analyzer.csproj")
   );
   public playgroundDirPath = path.resolve(
-    path.join(this.homeDir, this.extensionDirName, "playground")
+    path.join(this.extensionDirPath, "playground")
   );
   public playgroundDirUri = vscode.Uri.file(this.playgroundDirPath);
   public playgroundFilePath = path.resolve(
@@ -29,6 +28,7 @@ export class PlaygroundPathMananger {
   public analyzerServerCsProjResourcePath: string = "";
   public analyzerServerResourcePath: string = "";
   public analyzerWelcomeMessageResourcePath: string = "";
+  public playgroundInitalizationFilePath: string = "";
   public analyzerServerStatusAddress: string = "";
 
   private constructor() {}
@@ -51,6 +51,9 @@ export class PlaygroundPathMananger {
       );
       this.instance.analyzerWelcomeMessageResourcePath = path.resolve(
         path.join(context.extensionPath, "resources", "WelcomeMessage.cs")
+      );
+      this.instance.playgroundInitalizationFilePath = path.resolve(
+        path.join(context.extensionPath, "resources", ".playground")
       );
 
     }

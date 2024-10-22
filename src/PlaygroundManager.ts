@@ -32,11 +32,11 @@ export class PlaygroundManager {
     this.serverManager = serverManager;
   }
 
-  async clearPlayground() {
+  clearPlayground() {
     this.disposeTerminals();
   }
 
-  async removeAnalyzerServerFromDisk() {
+  async refreshAnalyzerServerOnDisk() {
     if (!existsSync(this.pathManager.analyzerServerDirPath)) {
       return;
     }
@@ -46,6 +46,7 @@ export class PlaygroundManager {
         recursive: true,
         force: true,
       });
+      await this.tryCreateAnalyzerServer();
     } catch (error) {
       this.channel.printErrorToChannel(
         "Following error occurred trying to remove Analyzer server from disk",
@@ -144,19 +145,13 @@ export class PlaygroundManager {
 
     return (
       (await runExecCommand(
-          `dotnet new sln --force`,
-        dirPath,
-        this.channel
-      )) &&
-      (await runExecCommand(
         `dotnet new console --force ${versionArg}`,
         dirPath,
         this.channel
       )) &&
-      (await runExecCommand(
-        `dotnet sln add ${path.basename(dirPath)}.csproj`,
-        dirPath,
-        this.channel
+      (await this.safeCopyFile(
+        this.pathManager.playgroundInitalizationFilePath,
+        path.resolve(path.join(dirPath, ".playground"))
       )) &&
       (await this.safeCopyFile(
         this.pathManager.analyzerWelcomeMessageResourcePath,
@@ -167,7 +162,7 @@ export class PlaygroundManager {
 
   shutdown() {
     this.disposeTerminals();
-    this.removePlaygroundFromWorkspace();
+    // this.removePlaygroundFromWorkspace();
   }
 
   // TODO: add to some filemanager
@@ -255,4 +250,6 @@ export class PlaygroundManager {
 
     return false;
   }
+
+
 }
