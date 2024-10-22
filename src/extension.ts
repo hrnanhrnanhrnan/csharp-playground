@@ -40,7 +40,7 @@ export async function activate(context: vscode.ExtensionContext) {
     ? new PlaygroundProdStateManager(pathManager, playgroundChannel)
     : new PlaygroundDevStateManager();
 
-  const serverManager = await AnalyzerServerManager.createInstance(
+  const serverManager = new AnalyzerServerManager(
     context,
     pathManager.analyzerServerDirPath,
     inlayHintsProvider,
@@ -55,9 +55,6 @@ export async function activate(context: vscode.ExtensionContext) {
   );
 
   const playgroundRunner = new PlaygroundRunner(context, playgroundManager, extensionManager, stateManager, pathManager, playgroundChannel);
-
-  // const eventHandlerResolver = new PlaygroundEventHandlerResolver(context, playgroundManager, playgroundRunner);
-  // eventHandlerResolver.resolveEventHandlers();
 
   const commandResolver = new PlaygroundCommandResolver(context, playgroundRunner, extensionManager);
   const [
@@ -92,5 +89,5 @@ export async function activate(context: vscode.ExtensionContext) {
 }
 
 export async function deactivate() {
-  playgroundManager?.shutdown();
+  playgroundManager?.shutdown(true);
 }

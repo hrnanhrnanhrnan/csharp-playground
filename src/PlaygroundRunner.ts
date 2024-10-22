@@ -118,11 +118,6 @@ export class PlaygroundRunner {
   }
 
   async startPlayground(type: PlaygroundType) {
-    // const state = await this.stateManager.getState();
-    // if (!state.playgroundStarted) {
-    //   return;
-    // }
-
     return vscode.window.withProgress(
       {
         location: vscode.ProgressLocation.Notification,
@@ -134,12 +129,9 @@ export class PlaygroundRunner {
           this.playgroundManager.shutdown();
         });
         
-        this.playgroundManager.clearPlayground();
+        this.playgroundManager.shutdown();
 
-        const state = await this.stateManager.getState();
-        this.channel.appendLine(`in startPlayground, status for playgroundStarted state is: ${state.playgroundStarted}`);
-
-        await this.playgroundManager.runPlaygroundInTerminal();
+        await this.playgroundManager.startPlaygroundInTerminal();
 
         progress.report({ message: "Waiting for analyzer server..." });
 
@@ -203,7 +195,6 @@ export class PlaygroundRunner {
 
       this.channel.appendLine(`in eventhandler playgorund, will now run startplayground`);
       return this.startPlayground(type ?? "New");
-      // await this.stateManager.resetState();
     });
   }
 

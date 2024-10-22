@@ -95,9 +95,9 @@ export class PlaygroundManager {
     vscode.workspace.updateWorkspaceFolders(playgroundWorkspaceFolder.index, 1);
   }
 
-  async runPlaygroundInTerminal() {
+  async startPlaygroundInTerminal() {
     const analyzerServerTerminal =
-      await this.serverManager.runServerInTerminal();
+      await this.serverManager.startServerInTerminal();
 
     const playgroundTerminal = vscode.window.createTerminal({
       name: playgroundRunnerTerminalName,
@@ -138,21 +138,28 @@ export class PlaygroundManager {
     const dirPath = this.pathManager.playgroundDirPath;
     await mkdir(dirPath, { recursive: true });
 
-    const wantedVersion = this.extensionManager.installedDotnetVersions[dotneVersion ?? 0];
-    const versionArg = wantedVersion
-      ? `-f ${wantedVersion}`
-      : "";
+    const wantedVersion =
+      this.extensionManager.installedDotnetVersions[dotneVersion ?? 0];
+    const versionArg = wantedVersion ? `-f ${wantedVersion}` : "";
 
-    return (
-      (await runExecCommand(
+    if (
+      !await runExecCommand(
         `dotnet new console --force ${versionArg}`,
         dirPath,
         this.channel
-      )) &&
-      (await this.safeCopyFile(
+      )
+    ) {
+      return false;
+    }
+
+    if (!await this.safeCopyFile(
         this.pathManager.playgroundInitalizationFilePath,
         path.resolve(path.join(dirPath, ".playground"))
-      )) &&
+      )) {
+        return false;
+      }
+
+    return (
       (await this.safeCopyFile(
         this.pathManager.analyzerWelcomeMessageResourcePath,
         path.resolve(path.join(dirPath, "Program.cs"))
@@ -160,9 +167,11 @@ export class PlaygroundManager {
     );
   }
 
-  shutdown() {
+  shutdown(clearWorkspace: boolean = false) {
     this.disposeTerminals();
-    // this.removePlaygroundFromWorkspace();
+    if (clearWorkspace) {
+      this.removePlaygroundFromWorkspace();
+    }
   }
 
   // TODO: add to some filemanager
@@ -239,7 +248,7 @@ export class PlaygroundManager {
         return false;
       }
 
-      if (await this.serverManager.isAnalyzerServerActive()) {
+      if (await this.serverManager.isAnalyzerServerAlive()) {
         this.channel.appendLine("Analyzer server is ready");
         return true;
       }
@@ -250,6 +259,4 @@ export class PlaygroundManager {
 
     return false;
   }
-
-
 }

@@ -21,3 +21,9 @@ type PlaygroundState = {
     playgroundStarted: boolean
     typeOfPlayground?: PlaygroundType
 }
+
+type AnalyzerServerConnectionDetails = {
+  serverBaseUrl: string;
+  serverAnalyzeUrl: string;
+  serverStatusUrl: string;
+}

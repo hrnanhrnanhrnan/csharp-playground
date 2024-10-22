@@ -1,19 +1,15 @@
 import * as vscode from "vscode";
-import { getConfigSettings } from "./config";
 import { PlaygroundInlayHintsProvider } from "./PlaygroundInlayHintsProvider";
 import { PlaygroundOutputChannel } from "./PlaygroundOutputChannel";
 import { Server } from "net";
-import { extensionName, shell } from "./constants";
+import { shell } from "./constants";
 
 export class AnalyzerServerManager {
   private context: vscode.ExtensionContext;
   private inlayHintsProvider: PlaygroundInlayHintsProvider;
   private channel: PlaygroundOutputChannel;
-  public serverBaseUrl: string | undefined;
-  public serverAnalyzeUrl: string | undefined;
-  public serverStatusUrl: string | undefined;
+  private connectionDetails: AnalyzerServerConnectionDetails | undefined;
   private analyzerServerTerminalName = "Analyzer-runner";
-  private savedPortKey = `${extensionName}.savedPort`;
   private serverDirPath: string;
   private localHost = "http://localhost";
   private serverStatusPath = "/alive";
@@ -22,7 +18,7 @@ export class AnalyzerServerManager {
   private minPort = 5000;
   private maxPort = 5040;
 
-  private constructor(
+  constructor(
     context: vscode.ExtensionContext,
     serverDirPath: string,
     inlayHintsProvider: PlaygroundInlayHintsProvider,
@@ -34,33 +30,16 @@ export class AnalyzerServerManager {
     this.serverDirPath = serverDirPath;
   }
 
-  static async createInstance(
-    context: vscode.ExtensionContext,
-    serverDirPath: string,
-    inlayHintsProvider: PlaygroundInlayHintsProvider,
-    channel: PlaygroundOutputChannel
-  ) {
-    const instance = new AnalyzerServerManager(
-      context,
-      serverDirPath,
-      inlayHintsProvider,
-      channel
-    );
-    await instance.setLatestServerAddress();
-
-    return instance;
-  }
-
-  private async setLatestServerAddress() {
+  async startServerInTerminal(): Promise<vscode.Terminal> {
     const { serverBaseUrl, serverAnalyzeUrl, serverStatusUrl } =
       await this.getAnalyzerServerEndpoints();
-    this.serverBaseUrl = serverBaseUrl;
-    this.serverAnalyzeUrl = serverAnalyzeUrl;
-    this.serverStatusUrl = serverStatusUrl;
-  }
+    
+    this.connectionDetails = {
+      serverBaseUrl,
+      serverAnalyzeUrl,
+      serverStatusUrl
+    };
 
-  async runServerInTerminal(): Promise<vscode.Terminal> {
-    await this.setLatestServerAddress();
     const analyzerServerTerminal = vscode.window.createTerminal({
       name: this.analyzerServerTerminalName,
       cwd: this.serverDirPath,
@@ -68,7 +47,7 @@ export class AnalyzerServerManager {
     });
 
     analyzerServerTerminal.sendText(
-      `dotnet run -c Release --urls ${this.serverBaseUrl} `
+      `dotnet run -c Release --urls ${this.connectionDetails.serverBaseUrl} `
     );
 
     return analyzerServerTerminal;
@@ -86,10 +65,10 @@ export class AnalyzerServerManager {
     terminal.dispose();
   }
 
-  async analyzeCode(code: string) {
+  private async runAnalyzeCode(endpoint: string, code: string) {
     try {
       const payload = { code: code };
-      const response = await fetch(this.serverAnalyzeUrl!, {
+      const response = await fetch(endpoint, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -114,11 +93,15 @@ export class AnalyzerServerManager {
     }
   }
 
-  async isAnalyzerServerActive(): Promise<boolean> {
-    return this.isAnalyzerServerAlive(this.serverStatusUrl ?? "");
+  async analyzeCode(code: string) {
+    this.runAnalyzeCode(this.connectionDetails?.serverAnalyzeUrl ?? "", code);
   }
 
-  private async isAnalyzerServerAlive(endpoint: string): Promise<boolean> {
+  async isAnalyzerServerAlive(): Promise<boolean> {
+    return this.runIsAnalyzerServerAlive(this.connectionDetails?.serverStatusUrl ?? "");
+  }
+
+  private async runIsAnalyzerServerAlive(endpoint: string): Promise<boolean> {
     try {
       const response = await fetch(endpoint);
 
@@ -152,21 +135,7 @@ export class AnalyzerServerManager {
       return this.buildServerBaseUrl(this.debugDefaultPort);
     }
 
-    const savedPort = this.context.globalState.get<number>(this.savedPortKey);
-
-    if (
-      savedPort &&
-      (await this.isAnalyzerServerAlive(
-        this.buildServerStatusUrl(this.buildServerBaseUrl(savedPort))
-      ))
-    ) {
-      console.log(`analyzer server is alive at savedport: ${savedPort}`);
-      return this.buildServerBaseUrl(savedPort);
-    }
-
     const [availablePort, error] = await this.getAvaiablePort();
-    const newPort = availablePort ?? this.debugDefaultPort;
-    this.context.globalState.update(this.savedPortKey, newPort);
 
     if (error) {
       this.channel.printErrorToChannel(
@@ -176,7 +145,7 @@ export class AnalyzerServerManager {
       );
     }
 
-    return this.buildServerBaseUrl(newPort);
+    return this.buildServerBaseUrl(availablePort ?? this.debugDefaultPort);
   }
 
   private async getAvaiablePort(): Promise<Result<number>> {

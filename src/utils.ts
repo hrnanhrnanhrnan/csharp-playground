@@ -56,3 +56,16 @@ export function equalPaths(firstPath: string, secondPath: string) {
 
     return ["", true];
   }
+
+  export async function tryCatch<T>(func: () => Promise<T>) : Promise<Result<T>> {
+    try {
+      const result = await func();
+      return [result, null];
+    } catch (error) {
+      if (error instanceof Error) {
+        return [null, error];
+      }
+
+      return [null, new Error(String(error))];
+    }
+  }
