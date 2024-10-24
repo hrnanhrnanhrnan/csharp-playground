@@ -1,6 +1,6 @@
 import { PlaygroundManager } from "./PlaygroundManager";
 import * as vscode from "vscode";
-import { alertUser, equalPaths } from "./utils";
+import { alertUser, equalPaths, tryCatch } from "./utils";
 import { PlaygroundExtensionManager } from "./PlaygroundExtensionManager";
 import { getConfigSettings } from "./config";
 import { extensionName } from "./constants";
@@ -15,7 +15,6 @@ export class PlaygroundRunner {
   private pathManager: PlaygroundPathMananger;
   private context: vscode.ExtensionContext;
   private channel: PlaygroundOutputChannel;
-
 
   constructor(
     context: vscode.ExtensionContext,
@@ -41,14 +40,47 @@ export class PlaygroundRunner {
 
   async initializePlayground(type: PlaygroundType) {
     if (!this.extensionManager.isDotnetInstalled) {
-      alertUser(
+      return alertUser(
         "Cant find that .NET SDK is installed or that PATH is accessible. Have you recently installed, try to reload vscode",
         "error"
       );
-      return;
     }
 
-    let continueRun = false;
+    const [successfullIntialization, errorMessage] =
+      await this.initializePlaygroundProcess(type);
+
+    if (!successfullIntialization) {
+      return alertUser(errorMessage, "error");
+    }
+
+    if (this.startPlaygroundInCurrentWindow()) {
+      return this.startPlayground(type);
+    }
+
+    await this.setPlaygroundStartedState(type);
+    await this.openPlaygroundInNewWindow();
+  }
+
+  private async openPlaygroundInNewWindow() {
+    return vscode.commands.executeCommand(
+      "vscode.openFolder",
+      this.pathManager.playgroundDirUri,
+      true
+    );
+  }
+
+  private async setPlaygroundStartedState(type: PlaygroundType) {
+    return this.stateManager.updateState({
+      playgroundStarted: true,
+      typeOfPlayground: type,
+    });
+  }
+
+  private async initializePlaygroundProcess(
+    type: PlaygroundType
+  ): Promise<[boolean, string]> {
+    let errorMessage = "";
+    let cancellationRequested = false;
 
     await vscode.window.withProgress(
       {
@@ -59,6 +91,7 @@ export class PlaygroundRunner {
       async (progress, token) => {
         token.onCancellationRequested(() => {
           this.playgroundManager.shutdown();
+          cancellationRequested = true;
         });
 
         const config = getConfigSettings();
@@ -66,105 +99,112 @@ export class PlaygroundRunner {
         progress.report({ message: "Setting up the playground..." });
 
         if (
-          (type === "New" ||
-            !existsSync(this.pathManager.playgroundFilePath)) &&
-          !(await this.playgroundManager.createCsharp(config.dotnetVersion))
+          this.shouldCreatePlayground(type) &&
+          !(await this.playgroundManager.createPlayground(config.dotnetVersion))
         ) {
-          alertUser(
-            "It went wrong creating the project, look in output",
-            "error"
-          );
-          return;
+          return (errorMessage =
+            "It went wrong creating the project, look in output");
         }
 
         progress.report({ message: "Setting up the analyzer server..." });
 
-        if (!(await this.playgroundManager.tryCreateAnalyzerServer())) {
-          alertUser(
-            `Something went wrong trying to create analyzer server, check output for more information`,
-            "error"
-          );
-
-          return;
+        if (token.isCancellationRequested) {
+          return (errorMessage = "Cancellation requested, will not setup analyzer server");
         }
 
-        continueRun = true;
+        if (!(await this.playgroundManager.tryCreateAnalyzerServer())) {
+          return (errorMessage = `Something went wrong trying to create analyzer server, check output for more information`);
+        }
       }
     );
 
-    if (!continueRun) {
-      return;
-    }
+    return [!!errorMessage || !cancellationRequested, errorMessage];
+  }
 
-    if (
+  private startPlaygroundInCurrentWindow() {
+    return (
       this.playgroundManager.isPlaygroundInWorkspace() ||
       !this.extensionManager.isProduction
-    ) {
-      this.channel.appendLine("starting playground from initialize");
-      return this.startPlayground(type);
-    }
-
-    await this.stateManager.updateState({
-      playgroundStarted: true,
-      typeOfPlayground: type,
-    });
-
-    this.channel.appendLine("opening folder from initiazie");
-    await vscode.commands.executeCommand(
-      "vscode.openFolder",
-      this.pathManager.playgroundDirUri,
-      true
     );
   }
 
+  private shouldCreatePlayground(type: PlaygroundType) {
+    return type === "New" || !existsSync(this.pathManager.playgroundFilePath);
+  }
+
   async startPlayground(type: PlaygroundType) {
-    return vscode.window.withProgress(
-      {
-        location: vscode.ProgressLocation.Notification,
-        cancellable: true,
-        title: `${extensionName}: ${type} -> `,
+    const tokenSource = new vscode.CancellationTokenSource();
+
+    return tryCatch(
+      async () => {
+        return vscode.window.withProgress(
+          {
+            location: vscode.ProgressLocation.Notification,
+            cancellable: true,
+            title: `${extensionName}: ${type} -> `,
+          },
+          async (progress, token) => {
+            token.onCancellationRequested(() => {
+              tokenSource.cancel();
+            });
+
+            tokenSource.token.onCancellationRequested(() => {
+              this.playgroundManager.shutdown();
+            });
+
+            this.playgroundManager.shutdown();
+
+            const [startPlaygroundError] =
+              await this.playgroundManager.startPlaygroundInTerminal();
+
+            if (startPlaygroundError) {
+              return alertUser(
+                "It went wrong starting playground in terminal",
+                "error"
+              );
+            }
+
+            progress.report({ message: "Waiting for analyzer server..." });
+
+            const isServerReadyPromise =
+              this.playgroundManager.waitForAnalyzerServerReady(tokenSource.token);
+
+            const [openDocumentError] =
+              await this.playgroundManager.openTextDocument();
+
+            if (openDocumentError) {
+              tokenSource.cancel();
+              return alertUser(
+                "It went wrong opening the file, look in output",
+                "error"
+              );
+            }
+
+            const isServerReady = await isServerReadyPromise;
+            if (!isServerReady) {
+              this.playgroundManager.disposeTerminals();
+              return alertUser(
+                `Could not start Analyzer server, check output for more information`,
+                "error"
+              );
+            }
+
+            progress.report({ message: "Setting up workspace..." });
+
+            if (!this.playgroundManager.isPlaygroundInWorkspace()) {
+              this.playgroundManager.addPlaygroundToWorkspace();
+            }
+
+            await this.stateManager.resetState();
+            alertUser(
+              `Succesfully created and launched a playground`,
+              "success"
+            );
+          }
+        );
       },
-      async (progress, token) => {
-        token.onCancellationRequested(() => {
-          this.playgroundManager.shutdown();
-        });
-        
-        this.playgroundManager.shutdown();
-
-        await this.playgroundManager.startPlaygroundInTerminal();
-
-        progress.report({ message: "Waiting for analyzer server..." });
-
-        const isServerReadyPromise =
-          this.playgroundManager.waitForAnalyzerServerReady(token);
-
-        const [document, error] =
-          await this.playgroundManager.openTextDocument();
-        if (error) {
-          alertUser("It went wrong opening the file, look in output", "error");
-          return;
-        }
-
-        const isServerReady = await isServerReadyPromise;
-        if (!isServerReady) {
-          this.playgroundManager.disposeTerminals();
-          alertUser(
-            `Could not start Analyzer server, check output for more information`,
-            "error"
-          );
-
-          return;
-        }
-
-        progress.report({ message: "Setting up workspace..." });
-
-        if (!this.playgroundManager.isPlaygroundInWorkspace()) {
-          this.playgroundManager.addPlaygroundToWorkspace();
-        }
-
-        await this.stateManager.resetState();
-        alertUser(`Succesfully created and launched a playground`, "success");
-      }
+      (error) => this.channel.printErrorToChannel("Some unecspected error thrown when starting playground", error),
+      () => tokenSource.dispose()
     );
   }
 
@@ -173,13 +213,13 @@ export class PlaygroundRunner {
   }
 
   async isPlaygroundRequestedOnActivation(): Promise<
-    [boolean, PlaygroundType?]
+    [boolean, PlaygroundType]
   > {
     const state = await this.stateManager.getState();
     return [
       state.playgroundStarted &&
         this.playgroundManager.isPlaygroundInWorkspace(),
-      state.typeOfPlayground,
+      state.typeOfPlayground ?? "New",
     ];
   }
 
@@ -188,13 +228,11 @@ export class PlaygroundRunner {
       const [playgroundStarted, type] =
         await this.isPlaygroundRequestedOnActivation();
 
-      this.channel.appendLine(`in eventhandler playgorund started state is: ${playgroundStarted}`);
       if (!playgroundStarted) {
         return;
       }
 
-      this.channel.appendLine(`in eventhandler playgorund, will now run startplayground`);
-      return this.startPlayground(type ?? "New");
+      return this.startPlayground(type);
     });
   }
 
@@ -209,7 +247,10 @@ export class PlaygroundRunner {
         return;
       }
 
-      return this.playgroundManager.analyzeCode(document);
+      const [error] = await this.playgroundManager.analyzeCode(document);
+      if (error) {
+        this.channel.printErrorToChannel("Could not analyze code", error);
+      }
     });
   }
 }

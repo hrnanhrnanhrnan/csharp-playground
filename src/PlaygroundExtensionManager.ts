@@ -68,9 +68,9 @@ export class PlaygroundExtensionManager {
 
   private static async getInstalledDotnetVersions(channel: PlaygroundOutputChannel) : Promise<number[]> {
     channel.appendLine("Checking that .NET SDK is installed and that PATH is accessible");
-    const [out, success] = await runExecCommand("dotnet --list-sdks", "", channel);
+    const [error, out] = await runExecCommand("dotnet --list-sdks", "", channel);
 
-    if (!success) {
+    if (error) {
       channel.appendLine("Cant find that the .NET SDK is installed or that PATH is accessible");
       return [];
     }

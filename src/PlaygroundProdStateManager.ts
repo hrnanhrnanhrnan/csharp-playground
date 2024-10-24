@@ -2,6 +2,7 @@ import { readFile, writeFile } from "fs/promises";
 import { PlaygroundPathMananger } from "./PlaygroundPathMananger";
 import { PlaygroundOutputChannel } from "./PlaygroundOutputChannel";
 import path from "path";
+import { tryCatch } from "./utils";
 
 export class PlaygroundProdStateManager implements IPlaygroundStateManager {
     private channel: PlaygroundOutputChannel;
@@ -22,21 +23,21 @@ export class PlaygroundProdStateManager implements IPlaygroundStateManager {
     }
 
     async getState():  Promise<PlaygroundState> {
-        let playgroundState = this.defaultState;
-        try {
+        const [error, playgroundState] = await tryCatch(async () => {
             const data = await readFile(this.stateFilePath, { encoding: "utf8" } );
-            playgroundState = JSON.parse(data);
-        } catch (error) {
+            return JSON.parse(data);
+        });
+
+        if (error) {
             this.channel.printErrorToChannel("Could not read state from file", error);
         }
 
-        return playgroundState;
+        return playgroundState ?? this.defaultState;
     }
 
     async updateState(updatedState: PlaygroundState):  Promise<boolean> {
-        try {
-            await writeFile(this.stateFilePath, JSON.stringify(updatedState), "utf8");
-        } catch (error) {
+        const [error] = await tryCatch(writeFile(this.stateFilePath, JSON.stringify(updatedState), "utf8"));
+        if (error) {
             this.channel.printErrorToChannel("Could not update state", error);
             return false;
         }

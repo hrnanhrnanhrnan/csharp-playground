@@ -83,8 +83,7 @@ export async function activate(context: vscode.ExtensionContext) {
   const [playgroundStarted, type] = await playgroundRunner.isPlaygroundRequestedOnActivation();
 
   if (playgroundStarted) {
-    playgroundChannel.appendLine("starting playground terminals from extension.ts");
-    playgroundRunner.startPlayground(type ?? "New");
+    playgroundRunner.startPlayground(type);
   }
 }
 

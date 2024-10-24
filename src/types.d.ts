@@ -9,7 +9,7 @@ type ConfigSettings = {
 
 type PlaygroundType = "New" | "Continue";
 
-type Result<T> = [T, null] | [null, Error];
+type Result<T> = [undefined, T] | [Error];
 
 interface IPlaygroundStateManager {
     getState: () => Promise<PlaygroundState>

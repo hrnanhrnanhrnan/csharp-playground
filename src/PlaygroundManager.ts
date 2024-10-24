@@ -11,7 +11,7 @@ import {
   shell,
 } from "./constants";
 import { PlaygroundOutputChannel } from "./PlaygroundOutputChannel";
-import { runExecCommand } from "./utils";
+import { runExecCommand, tryCatch } from "./utils";
 import { PlaygroundExtensionManager } from "./PlaygroundExtensionManager";
 
 export class PlaygroundManager {
@@ -37,40 +37,29 @@ export class PlaygroundManager {
   }
 
   async refreshAnalyzerServerOnDisk() {
-    if (!existsSync(this.pathManager.analyzerServerDirPath)) {
-      return;
-    }
+    return tryCatch(async () => {
+      if (!existsSync(this.pathManager.analyzerServerDirPath)) {
+        return true;
+      }
 
-    try {
       await rm(this.pathManager.analyzerServerDirPath, {
         recursive: true,
         force: true,
       });
+
       await this.tryCreateAnalyzerServer();
-    } catch (error) {
-      this.channel.printErrorToChannel(
-        "Following error occurred trying to remove Analyzer server from disk",
-        error
-      );
-    }
+
+      return true;
+    });
   }
 
   async openTextDocument(): Promise<Result<vscode.TextDocument>> {
-    let document: vscode.TextDocument | null;
-    try {
+    return tryCatch(async () => {
       const uri = vscode.Uri.file(this.pathManager.playgroundFilePath);
-      document = await vscode.workspace.openTextDocument(uri);
+      const document = await vscode.workspace.openTextDocument(uri);
       await vscode.window.showTextDocument(document);
-    } catch (error) {
-      this.channel.printErrorToChannel(
-        `Error occurred when trying to open file at "${this.pathManager.playgroundFilePath}"`,
-        error
-      );
-
-      return [null, (error as Error) ?? new Error(String(error))];
-    }
-
-    return [document, null];
+      return document;
+    });
   }
 
   addPlaygroundToWorkspace(): boolean {
@@ -96,21 +85,23 @@ export class PlaygroundManager {
   }
 
   async startPlaygroundInTerminal() {
-    const analyzerServerTerminal =
-      await this.serverManager.startServerInTerminal();
+    return tryCatch(async () => {
+      const analyzerServerTerminal =
+        await this.serverManager.startServerInTerminal();
 
-    const playgroundTerminal = vscode.window.createTerminal({
-      name: playgroundRunnerTerminalName,
-      cwd: this.pathManager.playgroundDirPath,
-      shellPath: shell,
-      location: {
-        parentTerminal: analyzerServerTerminal,
-      },
+      const playgroundTerminal = vscode.window.createTerminal({
+        name: playgroundRunnerTerminalName,
+        cwd: this.pathManager.playgroundDirPath,
+        shellPath: shell,
+        location: {
+          parentTerminal: analyzerServerTerminal,
+        },
+      });
+
+      playgroundTerminal.sendText("dotnet watch run");
+      analyzerServerTerminal.show(true);
+      playgroundTerminal.show(true);
     });
-
-    playgroundTerminal.sendText("dotnet watch run");
-    analyzerServerTerminal.show(true);
-    playgroundTerminal.show(true);
   }
 
   disposeTerminals() {
@@ -134,7 +125,7 @@ export class PlaygroundManager {
     return playgroundWorkspaceFolder !== undefined;
   }
 
-  async createCsharp(dotneVersion: number | undefined): Promise<boolean> {
+  async createPlayground(dotneVersion: number | undefined): Promise<boolean> {
     const dirPath = this.pathManager.playgroundDirPath;
     await mkdir(dirPath, { recursive: true });
 
@@ -142,29 +133,47 @@ export class PlaygroundManager {
       this.extensionManager.installedDotnetVersions[dotneVersion ?? 0];
     const versionArg = wantedVersion ? `-f ${wantedVersion}` : "";
 
-    if (
-      !await runExecCommand(
-        `dotnet new console --force ${versionArg}`,
-        dirPath,
-        this.channel
-      )
-    ) {
+    const [newConsoleError] = await runExecCommand(
+      `dotnet new console --force ${versionArg}`,
+      dirPath,
+      this.channel
+    );
+
+    if (newConsoleError) {
+      this.channel.printErrorToChannel(
+        `Could not create new console application template at path: ${dirPath}`,
+        newConsoleError
+      );
       return false;
     }
 
-    if (!await this.safeCopyFile(
-        this.pathManager.playgroundInitalizationFilePath,
-        path.resolve(path.join(dirPath, ".playground"))
-      )) {
-        return false;
-      }
-
-    return (
-      (await this.safeCopyFile(
-        this.pathManager.analyzerWelcomeMessageResourcePath,
-        path.resolve(path.join(dirPath, "Program.cs"))
-      ))
+    const [copyInitFileError] = await this.safeCopyFile(
+      this.pathManager.playgroundInitalizationFilePath,
+      path.resolve(path.join(dirPath, ".playground"))
     );
+
+    if (copyInitFileError) {
+      this.channel.printErrorToChannel(
+        `Could not copy playground intitialization file to path: `,
+        copyInitFileError
+      );
+      return false;
+    }
+
+    const [copyWelcomeFileError] = await this.safeCopyFile(
+      this.pathManager.analyzerWelcomeMessageResourcePath,
+      path.resolve(path.join(dirPath, "Program.cs"))
+    );
+
+    if (copyWelcomeFileError) {
+      this.channel.printErrorToChannel(
+        `Could not copy welcome message file`,
+        copyInitFileError
+      );
+      return false;
+    }
+
+    return true;
   }
 
   shutdown(clearWorkspace: boolean = false) {
@@ -178,51 +187,56 @@ export class PlaygroundManager {
   async safeCopyFile(
     srcFilePath: string,
     destFilePath: string
-  ): Promise<boolean> {
-    try {
+  ): Promise<Result<void>> {
+    return tryCatch(async () => {
       const parentDir = path.dirname(destFilePath);
       await mkdir(parentDir, { recursive: true });
       await copyFile(srcFilePath, destFilePath);
-    } catch (error) {
+    });
+  }
+
+  async tryCreateAnalyzerServer() {
+    if (existsSync(this.pathManager.analyzerServerFilePath)) {
+      return true;
+    }
+
+    await mkdir(this.pathManager.analyzerServerDirPath, { recursive: true });
+
+    const [newWebTemplateError] = await runExecCommand(
+      "dotnet new web --force",
+      this.pathManager.analyzerServerDirPath,
+      this.channel
+    );
+    if (newWebTemplateError) {
       this.channel.printErrorToChannel(
-        "Could not copy file, following error occured",
-        error
+        `Could not create new web api template at path: ${this.pathManager.analyzerServerDirPath}`,
+        newWebTemplateError
       );
       return false;
     }
 
-    return true;
-  }
-
-  async tryCreateAnalyzerServer() {
-    try {
-      if (existsSync(this.pathManager.analyzerServerFilePath)) {
-        return true;
-      }
-
-      await mkdir(this.pathManager.analyzerServerDirPath, { recursive: true });
-      await runExecCommand(
-        "dotnet new web --force",
-        this.pathManager.analyzerServerDirPath,
-        this.channel
-      );
-
-      await runExecCommand(
-        "dotnet add package Microsoft.CodeAnalysis.CSharp.Scripting",
-        this.pathManager.analyzerServerDirPath,
-        this.channel
-      );
-
-      await this.safeCopyFile(
-        this.pathManager.analyzerServerResourcePath,
-        this.pathManager.analyzerServerFilePath
-      );
-    } catch (error) {
+    const [addNugetError] = await runExecCommand(
+      "dotnet add package Microsoft.CodeAnalysis.CSharp.Scripting",
+      this.pathManager.analyzerServerDirPath,
+      this.channel
+    );
+    if (addNugetError) {
       this.channel.printErrorToChannel(
-        "Error when trying to create and setup Analyzer server",
-        error
+        `Could not add nuget package to web api`,
+        addNugetError
       );
+      return false;
+    }
 
+    const [copyServerError] = await this.safeCopyFile(
+      this.pathManager.analyzerServerResourcePath,
+      this.pathManager.analyzerServerFilePath
+    );
+    if (copyServerError) {
+      this.channel.printErrorToChannel(
+        `Could not copy web server to path: ${this.pathManager.analyzerServerFilePath}`,
+        copyServerError
+      );
       return false;
     }
 

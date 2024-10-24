@@ -18,54 +18,67 @@ export function equalPaths(firstPath: string, secondPath: string) {
   return firstPathNorm === secodPathNorm;
 }
 
-  export function alertUser(message: string, type: "error" | "success") {
-    const alertMessage = `${extensionName}: 
+export function alertUser(message: string, type: "error" | "success") {
+  const alertMessage = `${extensionName}: 
           ${message}`;
 
-    if (type === "error") {
-      vscode.window.showErrorMessage(alertMessage);
-      return;
-    }
-
-    vscode.window.showInformationMessage(alertMessage);
+  if (type === "error") {
+    vscode.window.showErrorMessage(alertMessage);
+    return;
   }
 
-  export async function runExecCommand(command: string, cwd: string, channel: PlaygroundOutputChannel): Promise<[string, boolean]> {
-    try {
+  vscode.window.showInformationMessage(alertMessage);
+}
+
+export async function runExecCommand(
+  command: string,
+  cwd: string,
+  channel: PlaygroundOutputChannel
+): Promise<Result<string>> {
+  return tryCatch(
+    async () => {
       const { stdout, stderr } = await execPromise(command, {
         cwd,
         shell: shell,
       });
 
-      if (stdout) {
-        channel.appendLine(stdout);
-        return [stdout, true];
-      }
-
       if (stderr) {
-        channel.appendLine(stderr);
-        return [stderr, false];
+        throw new Error(
+          stderr ?? `Unknown error when running command: "${command}"`
+        );
       }
-    } catch (error) {
+
+      return stdout;
+    },
+    (error) =>
       channel.printErrorToChannel(
-        `Error occurred when trying to run command "${command}"`,
+        `Following error occurred when running command "${command}`,
         error
-      );
-      return [new Error(String(error)).message, false];
+      )
+  );
+}
+
+export async function tryCatch<T>(
+  promise: Promise<T> | (() => Promise<T>),
+  errorCallback?: (error: Error) => void,
+  finallyCallback?: () => void
+): Promise<Result<T>> {
+  try {
+    const result =
+      typeof promise === "function" ? await promise() : await promise;
+    return [undefined, result];
+  } catch (error) {
+    const typedError = (error as Error) ?? new Error(String(error));
+
+    if (errorCallback) {
+      errorCallback(typedError);
     }
 
-    return ["", true];
+    return [typedError];
   }
-
-  export async function tryCatch<T>(func: () => Promise<T>) : Promise<Result<T>> {
-    try {
-      const result = await func();
-      return [result, null];
-    } catch (error) {
-      if (error instanceof Error) {
-        return [null, error];
-      }
-
-      return [null, new Error(String(error))];
+  finally{
+    if (finallyCallback) {
+      finallyCallback();
     }
   }
+}

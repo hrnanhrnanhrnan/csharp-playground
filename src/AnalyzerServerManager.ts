@@ -3,6 +3,7 @@ import { PlaygroundInlayHintsProvider } from "./PlaygroundInlayHintsProvider";
 import { PlaygroundOutputChannel } from "./PlaygroundOutputChannel";
 import { Server } from "net";
 import { shell } from "./constants";
+import { tryCatch } from "./utils";
 
 export class AnalyzerServerManager {
   private context: vscode.ExtensionContext;
@@ -33,11 +34,11 @@ export class AnalyzerServerManager {
   async startServerInTerminal(): Promise<vscode.Terminal> {
     const { serverBaseUrl, serverAnalyzeUrl, serverStatusUrl } =
       await this.getAnalyzerServerEndpoints();
-    
+
     this.connectionDetails = {
       serverBaseUrl,
       serverAnalyzeUrl,
-      serverStatusUrl
+      serverStatusUrl,
     };
 
     const analyzerServerTerminal = vscode.window.createTerminal({
@@ -66,7 +67,7 @@ export class AnalyzerServerManager {
   }
 
   private async runAnalyzeCode(endpoint: string, code: string) {
-    try {
+    return tryCatch(async () => {
       const payload = { code: code };
       const response = await fetch(endpoint, {
         method: "POST",
@@ -77,49 +78,44 @@ export class AnalyzerServerManager {
       });
 
       if (!response.ok) {
-        console.log(`fetch failed: ${response.statusText}`);
-        this.channel.appendLine(
+        throw new Error(
           `Following error occurred trying to analyze the code: ${response.statusText}`
         );
       }
+
       const json = await response.json();
       this.inlayHintsProvider.setData(json);
-    } catch (error) {
-      console.log(`fetch failed: ${error}`);
-      this.channel.printErrorToChannel(
-        "Following error occurred trying to analyze the code",
-        error
-      );
-    }
+    });
   }
 
   async analyzeCode(code: string) {
-    this.runAnalyzeCode(this.connectionDetails?.serverAnalyzeUrl ?? "", code);
+    return this.runAnalyzeCode(this.connectionDetails?.serverAnalyzeUrl ?? "", code);
   }
 
   async isAnalyzerServerAlive(): Promise<boolean> {
-    return this.runIsAnalyzerServerAlive(this.connectionDetails?.serverStatusUrl ?? "");
-  }
+    const [error] = await this.runIsAnalyzerServerAlive(
+      this.connectionDetails?.serverStatusUrl ?? ""
+    );
 
-  private async runIsAnalyzerServerAlive(endpoint: string): Promise<boolean> {
-    try {
-      const response = await fetch(endpoint);
-
-      if (!response.ok) {
-        this.channel.appendLine(
-          `Analyzer server responding with not ok. Message: ${await response.text()}`
-        );
-        return false;
-      }
-    } catch (error) {
-      this.channel.printErrorToChannel(
-        "Error occurred when trying to check if Analyzer server is alive",
-        error
-      );
+    if (error) {
+      this.channel.printErrorToChannel("Following error occurred checking server is alive", error);
       return false;
     }
 
     return true;
+  }
+
+  private async runIsAnalyzerServerAlive(
+    endpoint: string
+  ): Promise<Result<void>> {
+    return tryCatch(
+      async () => {
+        const response = await fetch(endpoint);
+
+        if (!response.ok) {
+          throw new Error(`Analyzer server responding with not ok. Message: ${await response.text()}`);
+        }
+      });
   }
 
   private async getAnalyzerServerEndpoints() {
@@ -135,7 +131,7 @@ export class AnalyzerServerManager {
       return this.buildServerBaseUrl(this.debugDefaultPort);
     }
 
-    const [availablePort, error] = await this.getAvaiablePort();
+    const [error, availablePort] = await this.getAvaiablePort();
 
     if (error) {
       this.channel.printErrorToChannel(
@@ -149,47 +145,49 @@ export class AnalyzerServerManager {
   }
 
   private async getAvaiablePort(): Promise<Result<number>> {
-    return new Promise<Result<number>>((resolve, reject) => {
-      const checkPortAvailable = (portToCheck: number) => {
-        const server = new Server();
-        let timeoutFunc: NodeJS.Timeout;
-
-        server.once("error", (error: NodeJS.ErrnoException) => {
-          clearTimeout(timeoutFunc);
-          server.close();
-
-          if (error.code !== "EADDRINUSE") {
-            return [null, new Error(`Unknown error occured: ${error}`)];
-          }
-
-          const nextPortToTry = portToCheck + 1;
-
-          if (nextPortToTry > this.maxPort) {
-            return [null, new Error("All ports are occupied")];
-          }
-
-          return checkPortAvailable(nextPortToTry);
-        });
-
-        server.once("listening", () => {
-          clearTimeout(timeoutFunc);
-          server.close();
-          resolve([portToCheck, null]); // Porten är tillgänglig
-        });
-
-        server.listen(portToCheck, "127.0.0.1");
-
-        timeoutFunc = setTimeout(() => {
-          server.close();
-          reject(
-            new Error(
-              `Timeout when checking that port ${portToCheck} is available`
-            )
-          );
-        }, 3000);
-      };
-
-      checkPortAvailable(this.minPort);
+    return tryCatch(async () => {
+      return new Promise<number>((resolve, reject) => {
+        const checkPortAvailable = (portToCheck: number) => {
+          const server = new Server();
+          let timeoutFunc: NodeJS.Timeout;
+  
+          server.once("error", (error: NodeJS.ErrnoException) => {
+            clearTimeout(timeoutFunc);
+            server.close();
+  
+            if (error.code !== "EADDRINUSE") {
+              return [new Error(`Unknown error occured: ${error}`)];
+            }
+  
+            const nextPortToTry = portToCheck + 1;
+  
+            if (nextPortToTry > this.maxPort) {
+              return [new Error("All ports are occupied")];
+            }
+  
+            return checkPortAvailable(nextPortToTry);
+          });
+  
+          server.once("listening", () => {
+            clearTimeout(timeoutFunc);
+            server.close();
+            resolve(portToCheck); // Porten är tillgänglig
+          });
+  
+          server.listen(portToCheck, "127.0.0.1");
+  
+          timeoutFunc = setTimeout(() => {
+            server.close();
+            return [
+              new Error(
+                `Timeout when checking that port ${portToCheck} is available`
+              ),
+            ];
+          }, 3000);
+        };
+  
+        checkPortAvailable(this.minPort);
+      });
     });
   }
 
