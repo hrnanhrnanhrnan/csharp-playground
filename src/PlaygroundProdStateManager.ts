@@ -5,9 +5,9 @@ import path from "path";
 import { tryCatch } from "./utils";
 
 export class PlaygroundProdStateManager implements IPlaygroundStateManager {
-    private channel: PlaygroundOutputChannel;
-    private stateFileName = "playgroundState.json";
-    private stateFilePath: string;
+    private readonly channel: PlaygroundOutputChannel;
+    private readonly stateFileName = "playgroundState.json";
+    private readonly stateFilePath: string;
     private readonly defaultState: PlaygroundState = {
         playgroundStarted: false,
         typeOfPlayground: undefined

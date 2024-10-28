@@ -1,10 +1,20 @@
 import * as vscode from "vscode";
+import { AnalyzerServerManager } from "./AnalyzerServerManager";
 
 export class PlaygroundInlayHintsProvider implements vscode.InlayHintsProvider {
-  analyzerData: AnalyzedDataItem[] = [];
-
-  private _onDidChangeInlayHints = new vscode.EventEmitter<void>();
+  private readonly serverManager: AnalyzerServerManager;
+  private readonly _onDidChangeInlayHints = new vscode.EventEmitter<void>();
   readonly onDidChangeInlayHints = this._onDidChangeInlayHints.event;
+  private analyzerData: AnalyzedDataItem[] = [];
+
+  constructor(serverManager: AnalyzerServerManager) {
+    this.serverManager = serverManager;
+
+    this.serverManager.onCodeAnalyzed((analyzedDataItems) => {
+      this.analyzerData = analyzedDataItems;
+      this._onDidChangeInlayHints.fire();
+    });
+  }
 
   provideInlayHints(
     document: vscode.TextDocument,
@@ -40,10 +50,5 @@ export class PlaygroundInlayHintsProvider implements vscode.InlayHintsProvider {
     }
 
     return hints;
-  }
-
-  public setData(analyzerDataItems: AnalyzedDataItem[]) {
-    this.analyzerData = analyzerDataItems;
-    this._onDidChangeInlayHints.fire();
   }
 }

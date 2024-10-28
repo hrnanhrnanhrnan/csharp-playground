@@ -1,32 +1,27 @@
 import * as vscode from "vscode";
-import { PlaygroundInlayHintsProvider } from "./PlaygroundInlayHintsProvider";
 import { PlaygroundOutputChannel } from "./PlaygroundOutputChannel";
 import { Server } from "net";
 import { shell } from "./constants";
 import { tryCatch } from "./utils";
 
 export class AnalyzerServerManager {
-  private context: vscode.ExtensionContext;
-  private inlayHintsProvider: PlaygroundInlayHintsProvider;
-  private channel: PlaygroundOutputChannel;
+  private readonly _onCodeAnalyzed = new vscode.EventEmitter<AnalyzedDataItem[]>();
+  public readonly onCodeAnalyzed = this._onCodeAnalyzed.event;
+  private readonly channel: PlaygroundOutputChannel;
+  private readonly analyzerServerTerminalName = "Analyzer-runner";
+  private readonly serverDirPath: string;
+  private readonly localHost = "http://localhost";
+  private readonly serverStatusPath = "/alive";
+  private readonly serverAnalyzePath = "/analyze";
+  private readonly debugDefaultPort = 5041;
+  private readonly minPort = 5000;
+  private readonly maxPort = 5040;
   private connectionDetails: AnalyzerServerConnectionDetails | undefined;
-  private analyzerServerTerminalName = "Analyzer-runner";
-  private serverDirPath: string;
-  private localHost = "http://localhost";
-  private serverStatusPath = "/alive";
-  private serverAnalyzePath = "/analyze";
-  private debugDefaultPort = 5041;
-  private minPort = 5000;
-  private maxPort = 5040;
 
   constructor(
-    context: vscode.ExtensionContext,
     serverDirPath: string,
-    inlayHintsProvider: PlaygroundInlayHintsProvider,
     channel: PlaygroundOutputChannel
   ) {
-    this.context = context;
-    this.inlayHintsProvider = inlayHintsProvider;
     this.channel = channel;
     this.serverDirPath = serverDirPath;
   }
@@ -52,6 +47,10 @@ export class AnalyzerServerManager {
     );
 
     return analyzerServerTerminal;
+  }
+
+  dispose() {
+    this._onCodeAnalyzed.dispose();
   }
 
   disposeServer() {
@@ -83,8 +82,8 @@ export class AnalyzerServerManager {
         );
       }
 
-      const json = await response.json();
-      this.inlayHintsProvider.setData(json);
+      const analyzedDataItems = await response.json();
+      this._onCodeAnalyzed.fire(analyzedDataItems);
     });
   }
 
@@ -127,10 +126,6 @@ export class AnalyzerServerManager {
   }
 
   private async getAnalyserServerBaseUrl() {
-    if (this.context.extensionMode !== vscode.ExtensionMode.Production) {
-      return this.buildServerBaseUrl(this.debugDefaultPort);
-    }
-
     const [error, availablePort] = await this.getAvaiablePort();
 
     if (error) {

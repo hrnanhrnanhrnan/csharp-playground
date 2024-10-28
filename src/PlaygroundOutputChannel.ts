@@ -1,7 +1,7 @@
 import * as vscode from 'vscode';
 
 export class PlaygroundOutputChannel {
-    private channel: vscode.OutputChannel;
+    private readonly channel: vscode.OutputChannel;
 
     constructor(channelName: string) {
         this.channel = vscode.window.createOutputChannel(channelName);

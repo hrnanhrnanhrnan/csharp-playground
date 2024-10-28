@@ -15,10 +15,10 @@ import { runExecCommand, tryCatch } from "./utils";
 import { PlaygroundExtensionManager } from "./PlaygroundExtensionManager";
 
 export class PlaygroundManager {
-  private extensionManager: PlaygroundExtensionManager;
-  private serverManager: AnalyzerServerManager;
-  private channel: PlaygroundOutputChannel;
-  public pathManager: PlaygroundPathMananger;
+  private readonly extensionManager: PlaygroundExtensionManager;
+  private readonly serverManager: AnalyzerServerManager;
+  private readonly channel: PlaygroundOutputChannel;
+  public readonly pathManager: PlaygroundPathMananger;
 
   constructor(
     extensionManager: PlaygroundExtensionManager,
@@ -55,8 +55,9 @@ export class PlaygroundManager {
 
   async openTextDocument(): Promise<Result<vscode.TextDocument>> {
     return tryCatch(async () => {
-      const uri = vscode.Uri.file(this.pathManager.playgroundFilePath);
-      const document = await vscode.workspace.openTextDocument(uri);
+      const document = await vscode.workspace.openTextDocument(
+        this.pathManager.playgroundProgramFileUri
+      );
       await vscode.window.showTextDocument(document);
       return document;
     });
@@ -148,8 +149,9 @@ export class PlaygroundManager {
     }
 
     const [copyInitFileError] = await this.safeCopyFile(
-      this.pathManager.playgroundInitalizationFilePath,
-      path.resolve(path.join(dirPath, ".playground"))
+      this.pathManager.playgroundInitalizationResourceFilePath,
+      this.pathManager.playgroundInitalizationFilePath
+      
     );
 
     if (copyInitFileError) {
@@ -183,7 +185,10 @@ export class PlaygroundManager {
     }
   }
 
-  // TODO: add to some filemanager
+  dispose() {
+    this.serverManager.dispose();
+  }
+
   async safeCopyFile(
     srcFilePath: string,
     destFilePath: string
@@ -244,7 +249,10 @@ export class PlaygroundManager {
   }
 
   async analyzeCode(document: vscode.TextDocument) {
-    return this.serverManager.analyzeCode(document.getText());
+    const [error] = await this.serverManager.analyzeCode(document.getText());
+    if (error) {
+      this.channel.printErrorToChannel("Could not analyze code", error);
+    }
   }
 
   async waitForAnalyzerServerReady(token: vscode.CancellationToken) {

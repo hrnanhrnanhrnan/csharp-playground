@@ -4,63 +4,58 @@ import path from "path";
 
 export class PlaygroundPathMananger {
   private static instance: PlaygroundPathMananger | null;
-  public homeDir = os.homedir();
-  public extensionDirName = `.csharp_playground`;
-  public extensionDirPath = path.resolve(
+  public readonly homeDir = os.homedir();
+  public readonly extensionDirName = `.csharp_playground`;
+  public readonly extensionDirPath = path.resolve(
     path.join(this.homeDir, this.extensionDirName)
   );
-  public analyzerServerDirPath = path.resolve(
+  public readonly analyzerServerDirPath = path.resolve(
     path.join(this.extensionDirPath, "analyzer")
   );
-  public analyzerServerFilePath = path.resolve(
+  public readonly analyzerServerFilePath = path.resolve(
     path.join(this.analyzerServerDirPath, "Program.cs")
   );
-  public analyzerServerCsProjFilePath = path.resolve(
+  public readonly analyzerServerCsProjFilePath = path.resolve(
     path.join(this.analyzerServerDirPath, "analyzer.csproj")
   );
-  public playgroundDirPath = path.resolve(
+  public readonly playgroundDirPath = path.resolve(
     path.join(this.extensionDirPath, "playground")
   );
-  public playgroundDirUri = vscode.Uri.file(this.playgroundDirPath);
-  public playgroundFilePath = path.resolve(
+  public readonly playgroundDirUri = vscode.Uri.file(this.playgroundDirPath);
+  public readonly playgroundProgramFilePath = path.resolve(
     path.join(this.playgroundDirPath, "Program.cs")
   );
-  public analyzerServerCsProjResourcePath: string = "";
-  public analyzerServerResourcePath: string = "";
-  public analyzerWelcomeMessageResourcePath: string = "";
-  public playgroundInitalizationFilePath: string = "";
-  public analyzerServerStatusAddress: string = "";
+  public readonly playgroundProgramFileUri = vscode.Uri.file(this.playgroundProgramFilePath);
+  public readonly playgroundInitalizationFilePath = path.resolve(
+    path.join(this.playgroundDirPath, ".playground")
+  );
+  public readonly analyzerServerCsProjResourcePath: string;
+  public readonly analyzerServerResourcePath: string;
+  public readonly analyzerWelcomeMessageResourcePath: string;
+  public readonly playgroundInitalizationResourceFilePath: string;
 
-  private constructor() {}
-
-  public static getInstance(
-    context: vscode.ExtensionContext,
-  ) : PlaygroundPathMananger {
-    if (!this.instance) {
-      this.instance = new PlaygroundPathMananger();
-
-      this.instance.analyzerServerCsProjResourcePath = path.resolve(
-        path.join(
-          context.extensionPath,
-          "resources",
-          "AnalyzerServerCsProjFile.txt"
-        )
-      );
-      this.instance.analyzerServerResourcePath = path.resolve(
-        path.join(context.extensionPath, "resources", "AnalyzerServer.cs")
-      );
-      this.instance.analyzerWelcomeMessageResourcePath = path.resolve(
-        path.join(context.extensionPath, "resources", "WelcomeMessage.cs")
-      );
-      this.instance.playgroundInitalizationFilePath = path.resolve(
-        path.join(context.extensionPath, "resources", ".playground")
-      );
-
-    }
-     return this.instance;
+  private constructor(context: vscode.ExtensionContext) {
+    this.analyzerServerCsProjResourcePath = path.resolve(
+      path.join(
+        context.extensionPath,
+        "resources",
+        "AnalyzerServerCsProjFile.txt"
+      )
+    );
+    this.analyzerServerResourcePath = path.resolve(
+      path.join(context.extensionPath, "resources", "AnalyzerServer.cs")
+    );
+    this.analyzerWelcomeMessageResourcePath = path.resolve(
+      path.join(context.extensionPath, "resources", "WelcomeMessage.cs")
+    );
+    this.playgroundInitalizationResourceFilePath = path.resolve(
+      path.join(context.extensionPath, "resources", ".playground")
+    );
   }
 
-  public static dispose() {
-    this.instance = null;
+  public static getInstance(
+    context: vscode.ExtensionContext
+  ): PlaygroundPathMananger {
+    return this.instance ?? new PlaygroundPathMananger(context);
   }
 }

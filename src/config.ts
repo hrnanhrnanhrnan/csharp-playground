@@ -5,6 +5,6 @@ export function getConfigSettings(): ConfigSettings {
   const config = workspace.getConfiguration(extensionName);
 
   return {
-    dotnetVersion: config.get<number>("dotnetVersion"),
+    dotnetVersion: config.get<number>("dotnetVersion")
   };
 }

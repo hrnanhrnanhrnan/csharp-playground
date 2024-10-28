@@ -9,8 +9,7 @@ import { PlaygroundOutputChannel } from "./PlaygroundOutputChannel";
 import { PlaygroundPathMananger } from "./PlaygroundPathMananger";
 import { PlaygroundCommandResolver } from "./PlaygroundCommandResolver";
 import { PlaygroundExtensionManager } from "./PlaygroundExtensionManager";
-import { PlaygroundEventHandlerResolver } from "./PlaygroundEventHandlerResolver";
-import { extensionName, runPlaygroundCommandFiredKey } from "./constants";
+import { extensionName } from "./constants";
 import { PlaygroundProdStateManager } from "./PlaygroundProdStateManager";
 import { PlaygroundDevStateManager } from "./PlaygroundDevStateManager";
 import { PlaygroundRunner } from "./PlaygroundRunner";
@@ -22,29 +21,30 @@ export async function activate(context: vscode.ExtensionContext) {
 
   // Setup output channel
   const playgroundChannel = new PlaygroundOutputChannel(extensionName);
-  playgroundChannel.appendLine(`The "${extensionName}" extension is now active!`);
-
-  const inlayHintsProvider = new PlaygroundInlayHintsProvider();
-  const inlayHintsDisposable = vscode.languages.registerInlayHintsProvider(
-    { scheme: "file", language: "csharp" },
-    inlayHintsProvider
+  playgroundChannel.appendLine(
+    `The "${extensionName}" extension is now active!`
   );
-  
-  const extensionManager = await PlaygroundExtensionManager.createInstance(context, playgroundChannel);
 
-  const pathManager = PlaygroundPathMananger.getInstance(
-    context
+  const extensionManager = await PlaygroundExtensionManager.createInstance(
+    context,
+    playgroundChannel
   );
+
+  const pathManager = PlaygroundPathMananger.getInstance(context);
 
   const stateManager: IPlaygroundStateManager = extensionManager.isProduction
     ? new PlaygroundProdStateManager(pathManager, playgroundChannel)
     : new PlaygroundDevStateManager();
 
   const serverManager = new AnalyzerServerManager(
-    context,
     pathManager.analyzerServerDirPath,
-    inlayHintsProvider,
     playgroundChannel
+  );
+
+  const inlayHintsProvider = new PlaygroundInlayHintsProvider(serverManager);
+  const inlayHintsDisposable = vscode.languages.registerInlayHintsProvider(
+    { scheme: "file", language: "csharp" },
+    inlayHintsProvider
   );
 
   playgroundManager = new PlaygroundManager(
@@ -54,9 +54,15 @@ export async function activate(context: vscode.ExtensionContext) {
     playgroundChannel
   );
 
-  const playgroundRunner = new PlaygroundRunner(context, playgroundManager, extensionManager, stateManager, pathManager, playgroundChannel);
+  const playgroundRunner = new PlaygroundRunner(
+    playgroundManager,
+    extensionManager,
+    stateManager,
+    pathManager,
+    playgroundChannel
+  );
 
-  const commandResolver = new PlaygroundCommandResolver(context, playgroundRunner, extensionManager);
+  const commandResolver = new PlaygroundCommandResolver(playgroundRunner);
   const [
     newCommandDisposable,
     continueCommandDisposable,
@@ -70,7 +76,7 @@ export async function activate(context: vscode.ExtensionContext) {
       "error"
     );
   }
-  
+
   if (extensionManager.isUpdated()) {
     await playgroundManager.refreshAnalyzerServerOnDisk();
   }
@@ -80,7 +86,8 @@ export async function activate(context: vscode.ExtensionContext) {
   context.subscriptions.push(continueCommandDisposable);
   context.subscriptions.push(stopCommandDisposable);
 
-  const [playgroundStarted, type] = await playgroundRunner.isPlaygroundRequestedOnActivation();
+  const [playgroundStarted, type] =
+    await playgroundRunner.isStartPlaygroundRequested();
 
   if (playgroundStarted) {
     playgroundRunner.startPlayground(type);
@@ -89,4 +96,5 @@ export async function activate(context: vscode.ExtensionContext) {
 
 export async function deactivate() {
   playgroundManager?.shutdown(true);
+  playgroundManager?.dispose();
 }

@@ -1,16 +1,16 @@
 import * as vscode from "vscode";
 import { ExtensionContext } from "vscode";
 import { PlaygroundOutputChannel } from "./PlaygroundOutputChannel";
-import { execPromise, runExecCommand } from "./utils";
+import { runExecCommand } from "./utils";
 import { extensionName, publisher } from "./constants";
 
 export class PlaygroundExtensionManager {
-  private extensionId = `${publisher}.${extensionName}`;
-  private extensionVersionKey = `${extensionName}.extensionVersion`;
-  private context: ExtensionContext;
-  public isDotnetInstalled = false;
-  public installedDotnetVersions: Record<number, string>;
-  public isProduction: boolean;
+  private readonly extensionId = `${publisher}.${extensionName}`;
+  private readonly extensionVersionKey = `${extensionName}.extensionVersion`;
+  private readonly context: ExtensionContext;
+  public readonly isDotnetInstalled: boolean;
+  public readonly installedDotnetVersions: Record<number, string>;
+  public readonly isProduction: boolean;
 
   private constructor(
     context: ExtensionContext,

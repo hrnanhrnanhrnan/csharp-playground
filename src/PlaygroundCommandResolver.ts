@@ -1,27 +1,15 @@
-import { PlaygroundManager } from "./PlaygroundManager";
 import * as vscode from "vscode";
-import { alertUser } from "./utils";
-import { PlaygroundExtensionManager } from "./PlaygroundExtensionManager";
-import { getConfigSettings } from "./config";
-import { extensionName, runPlaygroundCommandFiredKey } from "./constants";
+import { extensionName } from "./constants";
 import { PlaygroundRunner } from "./PlaygroundRunner";
 
 export class PlaygroundCommandResolver {
-  private newPlaygroundCommandName = `${extensionName}.newPlayground`;
-  private continuePlaygroundCommandName = `${extensionName}.continuePlayground`;
-  private stopPlaygroundCommandName = `${extensionName}.stopPlayground`;
-  private playgroundRunner: PlaygroundRunner;
-  private extensionManager: PlaygroundExtensionManager;
-  private context: vscode.ExtensionContext;
+  private readonly newPlaygroundCommandName = `${extensionName}.newPlayground`;
+  private readonly continuePlaygroundCommandName = `${extensionName}.continuePlayground`;
+  private readonly stopPlaygroundCommandName = `${extensionName}.stopPlayground`;
+  private readonly playgroundRunner: PlaygroundRunner;
 
-  constructor(
-    context: vscode.ExtensionContext,
-    playgroundRunner: PlaygroundRunner,
-    extensionManager: PlaygroundExtensionManager
-  ) {
-    this.context = context;
+  constructor(playgroundRunner: PlaygroundRunner) {
     this.playgroundRunner = playgroundRunner;
-    this.extensionManager = extensionManager;
   }
 
   async resolveRegisterCommands() {
@@ -33,7 +21,8 @@ export class PlaygroundCommandResolver {
   }
 
   private registerNewPlaygroundCommand() {
-    return vscode.commands.registerCommand(this.newPlaygroundCommandName,
+    return vscode.commands.registerCommand(
+      this.newPlaygroundCommandName,
       async () => await this.playgroundRunner.initializePlayground("New")
     );
   }

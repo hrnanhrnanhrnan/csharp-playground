@@ -9,22 +9,19 @@ import { existsSync } from "fs";
 import { PlaygroundOutputChannel } from "./PlaygroundOutputChannel";
 
 export class PlaygroundRunner {
-  private playgroundManager: PlaygroundManager;
-  private stateManager: IPlaygroundStateManager;
-  private extensionManager: PlaygroundExtensionManager;
-  private pathManager: PlaygroundPathMananger;
-  private context: vscode.ExtensionContext;
-  private channel: PlaygroundOutputChannel;
+  private readonly playgroundManager: PlaygroundManager;
+  private readonly stateManager: IPlaygroundStateManager;
+  private readonly extensionManager: PlaygroundExtensionManager;
+  private readonly pathManager: PlaygroundPathMananger;
+  private readonly channel: PlaygroundOutputChannel;
 
   constructor(
-    context: vscode.ExtensionContext,
     playgroundManager: PlaygroundManager,
     extensionManager: PlaygroundExtensionManager,
     stateManager: IPlaygroundStateManager,
     pathManager: PlaygroundPathMananger,
     channel: PlaygroundOutputChannel
   ) {
-    this.context = context;
     this.playgroundManager = playgroundManager;
     this.extensionManager = extensionManager;
     this.stateManager = stateManager;
@@ -109,7 +106,8 @@ export class PlaygroundRunner {
         progress.report({ message: "Setting up the analyzer server..." });
 
         if (token.isCancellationRequested) {
-          return (errorMessage = "Cancellation requested, will not setup analyzer server");
+          return (errorMessage =
+            "Cancellation requested, will not setup analyzer server");
         }
 
         if (!(await this.playgroundManager.tryCreateAnalyzerServer())) {
@@ -129,7 +127,7 @@ export class PlaygroundRunner {
   }
 
   private shouldCreatePlayground(type: PlaygroundType) {
-    return type === "New" || !existsSync(this.pathManager.playgroundFilePath);
+    return type === "New" || !existsSync(this.pathManager.playgroundProgramFilePath);
   }
 
   async startPlayground(type: PlaygroundType) {
@@ -137,7 +135,7 @@ export class PlaygroundRunner {
 
     return tryCatch(
       async () => {
-        return vscode.window.withProgress(
+        vscode.window.withProgress(
           {
             location: vscode.ProgressLocation.Notification,
             cancellable: true,
@@ -150,14 +148,17 @@ export class PlaygroundRunner {
 
             tokenSource.token.onCancellationRequested(() => {
               this.playgroundManager.shutdown();
+              this.stateManager.resetState();
             });
 
+            await this.stateManager.resetState();
             this.playgroundManager.shutdown();
 
             const [startPlaygroundError] =
               await this.playgroundManager.startPlaygroundInTerminal();
 
             if (startPlaygroundError) {
+              tokenSource.cancel();
               return alertUser(
                 "It went wrong starting playground in terminal",
                 "error"
@@ -167,7 +168,9 @@ export class PlaygroundRunner {
             progress.report({ message: "Waiting for analyzer server..." });
 
             const isServerReadyPromise =
-              this.playgroundManager.waitForAnalyzerServerReady(tokenSource.token);
+              this.playgroundManager.waitForAnalyzerServerReady(
+                tokenSource.token
+              );
 
             const [openDocumentError] =
               await this.playgroundManager.openTextDocument();
@@ -182,7 +185,7 @@ export class PlaygroundRunner {
 
             const isServerReady = await isServerReadyPromise;
             if (!isServerReady) {
-              this.playgroundManager.disposeTerminals();
+              tokenSource.cancel();
               return alertUser(
                 `Could not start Analyzer server, check output for more information`,
                 "error"
@@ -195,7 +198,6 @@ export class PlaygroundRunner {
               this.playgroundManager.addPlaygroundToWorkspace();
             }
 
-            await this.stateManager.resetState();
             alertUser(
               `Succesfully created and launched a playground`,
               "success"
@@ -203,7 +205,13 @@ export class PlaygroundRunner {
           }
         );
       },
-      (error) => this.channel.printErrorToChannel("Some unecspected error thrown when starting playground", error),
+      (error) => {
+        tokenSource.cancel();
+        this.channel.printErrorToChannel(
+          "Some unecspected error thrown when starting playground",
+          error
+        );
+      },
       () => tokenSource.dispose()
     );
   }
@@ -212,9 +220,7 @@ export class PlaygroundRunner {
     this.playgroundManager.shutdown();
   }
 
-  async isPlaygroundRequestedOnActivation(): Promise<
-    [boolean, PlaygroundType]
-  > {
+  async isStartPlaygroundRequested(): Promise<[boolean, PlaygroundType]> {
     const state = await this.stateManager.getState();
     return [
       state.playgroundStarted &&
@@ -224,9 +230,8 @@ export class PlaygroundRunner {
   }
 
   private registerOnDidChangeWindowStateEventHandler() {
-    vscode.window.onDidChangeWindowState(async (state) => {
-      const [playgroundStarted, type] =
-        await this.isPlaygroundRequestedOnActivation();
+    vscode.window.onDidChangeWindowState(async () => {
+      const [playgroundStarted, type] = await this.isStartPlaygroundRequested();
 
       if (!playgroundStarted) {
         return;
@@ -241,16 +246,13 @@ export class PlaygroundRunner {
       if (
         !equalPaths(
           document.uri.fsPath,
-          this.playgroundManager.pathManager.playgroundFilePath ?? ""
+          this.playgroundManager.pathManager.playgroundProgramFilePath ?? ""
         )
       ) {
         return;
       }
 
-      const [error] = await this.playgroundManager.analyzeCode(document);
-      if (error) {
-        this.channel.printErrorToChannel("Could not analyze code", error);
-      }
+      await this.playgroundManager.analyzeCode(document);
     });
   }
 }
