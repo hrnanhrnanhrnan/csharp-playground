@@ -3,9 +3,9 @@ import { AnalyzerServerManager } from "./AnalyzerServerManager";
 
 export class PlaygroundInlayHintsProvider implements vscode.InlayHintsProvider {
   private readonly serverManager: AnalyzerServerManager;
+  private analyzerData: AnalyzedDataItem[] = [];
   private readonly _onDidChangeInlayHints = new vscode.EventEmitter<void>();
   readonly onDidChangeInlayHints = this._onDidChangeInlayHints.event;
-  private analyzerData: AnalyzedDataItem[] = [];
 
   constructor(serverManager: AnalyzerServerManager) {
     this.serverManager = serverManager;

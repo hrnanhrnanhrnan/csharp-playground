@@ -25,7 +25,9 @@ export class PlaygroundPathMananger {
   public readonly playgroundProgramFilePath = path.resolve(
     path.join(this.playgroundDirPath, "Program.cs")
   );
-  public readonly playgroundProgramFileUri = vscode.Uri.file(this.playgroundProgramFilePath);
+  public readonly playgroundProgramFileUri = vscode.Uri.file(
+    this.playgroundProgramFilePath
+  );
   public readonly playgroundInitalizationFilePath = path.resolve(
     path.join(this.playgroundDirPath, ".playground")
   );

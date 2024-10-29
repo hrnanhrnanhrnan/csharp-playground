@@ -1,6 +1,6 @@
 import { PlaygroundManager } from "./PlaygroundManager";
 import * as vscode from "vscode";
-import { alertUser, equalPaths, tryCatch } from "./utils";
+import { alertUser, equalPaths, tryCatchPromise } from "./utils";
 import { PlaygroundExtensionManager } from "./PlaygroundExtensionManager";
 import { getConfigSettings } from "./config";
 import { extensionName } from "./constants";
@@ -58,82 +58,10 @@ export class PlaygroundRunner {
     await this.openPlaygroundInNewWindow();
   }
 
-  private async openPlaygroundInNewWindow() {
-    return vscode.commands.executeCommand(
-      "vscode.openFolder",
-      this.pathManager.playgroundDirUri,
-      true
-    );
-  }
-
-  private async setPlaygroundStartedState(type: PlaygroundType) {
-    return this.stateManager.updateState({
-      playgroundStarted: true,
-      typeOfPlayground: type,
-    });
-  }
-
-  private async initializePlaygroundProcess(
-    type: PlaygroundType
-  ): Promise<[boolean, string]> {
-    let errorMessage = "";
-    let cancellationRequested = false;
-
-    await vscode.window.withProgress(
-      {
-        location: vscode.ProgressLocation.Notification,
-        cancellable: true,
-        title: `${extensionName}: ${type} -> `,
-      },
-      async (progress, token) => {
-        token.onCancellationRequested(() => {
-          this.playgroundManager.shutdown();
-          cancellationRequested = true;
-        });
-
-        const config = getConfigSettings();
-
-        progress.report({ message: "Setting up the playground..." });
-
-        if (
-          this.shouldCreatePlayground(type) &&
-          !(await this.playgroundManager.createPlayground(config.dotnetVersion))
-        ) {
-          return (errorMessage =
-            "It went wrong creating the project, look in output");
-        }
-
-        progress.report({ message: "Setting up the analyzer server..." });
-
-        if (token.isCancellationRequested) {
-          return (errorMessage =
-            "Cancellation requested, will not setup analyzer server");
-        }
-
-        if (!(await this.playgroundManager.tryCreateAnalyzerServer())) {
-          return (errorMessage = `Something went wrong trying to create analyzer server, check output for more information`);
-        }
-      }
-    );
-
-    return [!!errorMessage || !cancellationRequested, errorMessage];
-  }
-
-  private startPlaygroundInCurrentWindow() {
-    return (
-      this.playgroundManager.isPlaygroundInWorkspace() ||
-      !this.extensionManager.isProduction
-    );
-  }
-
-  private shouldCreatePlayground(type: PlaygroundType) {
-    return type === "New" || !existsSync(this.pathManager.playgroundProgramFilePath);
-  }
-
   async startPlayground(type: PlaygroundType) {
     const tokenSource = new vscode.CancellationTokenSource();
 
-    return tryCatch(
+    return tryCatchPromise(
       async () => {
         vscode.window.withProgress(
           {
@@ -229,6 +157,80 @@ export class PlaygroundRunner {
     ];
   }
 
+  private async initializePlaygroundProcess(
+    type: PlaygroundType
+  ): Promise<[boolean, string]> {
+    let errorMessage = "";
+    let cancellationRequested = false;
+
+    await vscode.window.withProgress(
+      {
+        location: vscode.ProgressLocation.Notification,
+        cancellable: true,
+        title: `${extensionName}: ${type} -> `,
+      },
+      async (progress, token) => {
+        token.onCancellationRequested(() => {
+          this.playgroundManager.shutdown();
+          cancellationRequested = true;
+        });
+
+        const config = getConfigSettings();
+
+        progress.report({ message: "Setting up the playground..." });
+
+        if (
+          this.shouldCreatePlayground(type) &&
+          !(await this.playgroundManager.createPlayground(config.dotnetVersion))
+        ) {
+          return (errorMessage =
+            "It went wrong creating the project, look in output");
+        }
+
+        progress.report({ message: "Setting up the analyzer server..." });
+
+        if (token.isCancellationRequested) {
+          return (errorMessage =
+            "Cancellation requested, will not setup analyzer server");
+        }
+
+        if (!(await this.playgroundManager.tryCreateAnalyzerServer())) {
+          return (errorMessage = `Something went wrong trying to create analyzer server, check output for more information`);
+        }
+      }
+    );
+
+    return [!!errorMessage || !cancellationRequested, errorMessage];
+  }
+
+  private async openPlaygroundInNewWindow() {
+    return vscode.commands.executeCommand(
+      "vscode.openFolder",
+      this.pathManager.playgroundDirUri,
+      true
+    );
+  }
+
+  private async setPlaygroundStartedState(type: PlaygroundType) {
+    return this.stateManager.updateState({
+      playgroundStarted: true,
+      typeOfPlayground: type,
+    });
+  }
+
+  private startPlaygroundInCurrentWindow() {
+    return (
+      this.playgroundManager.isPlaygroundInWorkspace() ||
+      !this.extensionManager.isProduction
+    );
+  }
+
+  private shouldCreatePlayground(type: PlaygroundType) {
+    return (
+      type === "New" || !existsSync(this.pathManager.playgroundProgramFilePath)
+    );
+  }
+
   private registerOnDidChangeWindowStateEventHandler() {
     vscode.window.onDidChangeWindowState(async () => {
       const [playgroundStarted, type] = await this.isStartPlaygroundRequested();
@@ -246,7 +248,7 @@ export class PlaygroundRunner {
       if (
         !equalPaths(
           document.uri.fsPath,
-          this.playgroundManager.pathManager.playgroundProgramFilePath ?? ""
+          this.playgroundManager.pathManager.playgroundProgramFilePath
         )
       ) {
         return;

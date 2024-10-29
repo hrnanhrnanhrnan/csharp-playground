@@ -2,26 +2,26 @@ import * as vscode from "vscode";
 import { PlaygroundOutputChannel } from "./PlaygroundOutputChannel";
 import { Server } from "net";
 import { shell } from "./constants";
-import { tryCatch } from "./utils";
+import { tryCatchPromise } from "./utils";
 
 export class AnalyzerServerManager {
-  private readonly _onCodeAnalyzed = new vscode.EventEmitter<AnalyzedDataItem[]>();
-  public readonly onCodeAnalyzed = this._onCodeAnalyzed.event;
   private readonly channel: PlaygroundOutputChannel;
   private readonly analyzerServerTerminalName = "Analyzer-runner";
   private readonly serverDirPath: string;
-  private readonly localHost = "http://localhost";
+  private readonly localhostUrl = "http://localhost";
+  private readonly localhostIp = "127.0.0.1";
   private readonly serverStatusPath = "/alive";
   private readonly serverAnalyzePath = "/analyze";
   private readonly debugDefaultPort = 5041;
   private readonly minPort = 5000;
   private readonly maxPort = 5040;
   private connectionDetails: AnalyzerServerConnectionDetails | undefined;
+  private readonly _onCodeAnalyzed = new vscode.EventEmitter<
+    AnalyzedDataItem[]
+  >();
+  public readonly onCodeAnalyzed = this._onCodeAnalyzed.event;
 
-  constructor(
-    serverDirPath: string,
-    channel: PlaygroundOutputChannel
-  ) {
+  constructor(serverDirPath: string, channel: PlaygroundOutputChannel) {
     this.channel = channel;
     this.serverDirPath = serverDirPath;
   }
@@ -49,10 +49,6 @@ export class AnalyzerServerManager {
     return analyzerServerTerminal;
   }
 
-  dispose() {
-    this._onCodeAnalyzed.dispose();
-  }
-
   disposeServer() {
     const terminal = vscode.window.terminals.find(
       (x) => x.name === this.analyzerServerTerminalName
@@ -65,8 +61,35 @@ export class AnalyzerServerManager {
     terminal.dispose();
   }
 
+  dispose() {
+    this._onCodeAnalyzed.dispose();
+  }
+
+  async analyzeCode(code: string) {
+    return this.runAnalyzeCode(
+      this.connectionDetails?.serverAnalyzeUrl ?? "",
+      code
+    );
+  }
+
+  async isAnalyzerServerAlive(): Promise<boolean> {
+    const [error] = await this.runIsAnalyzerServerAlive(
+      this.connectionDetails?.serverStatusUrl ?? ""
+    );
+
+    if (error) {
+      this.channel.printErrorToChannel(
+        "Following error occurred checking server is alive",
+        error
+      );
+      return false;
+    }
+
+    return true;
+  }
+
   private async runAnalyzeCode(endpoint: string, code: string) {
-    return tryCatch(async () => {
+    return tryCatchPromise(async () => {
       const payload = { code: code };
       const response = await fetch(endpoint, {
         method: "POST",
@@ -87,34 +110,18 @@ export class AnalyzerServerManager {
     });
   }
 
-  async analyzeCode(code: string) {
-    return this.runAnalyzeCode(this.connectionDetails?.serverAnalyzeUrl ?? "", code);
-  }
-
-  async isAnalyzerServerAlive(): Promise<boolean> {
-    const [error] = await this.runIsAnalyzerServerAlive(
-      this.connectionDetails?.serverStatusUrl ?? ""
-    );
-
-    if (error) {
-      this.channel.printErrorToChannel("Following error occurred checking server is alive", error);
-      return false;
-    }
-
-    return true;
-  }
-
   private async runIsAnalyzerServerAlive(
     endpoint: string
   ): Promise<Result<void>> {
-    return tryCatch(
-      async () => {
-        const response = await fetch(endpoint);
+    return tryCatchPromise(async () => {
+      const response = await fetch(endpoint);
 
-        if (!response.ok) {
-          throw new Error(`Analyzer server responding with not ok. Message: ${await response.text()}`);
-        }
-      });
+      if (!response.ok) {
+        throw new Error(
+          `Analyzer server responding with not ok. Message: ${await response.text()}`
+        );
+      }
+    });
   }
 
   private async getAnalyzerServerEndpoints() {
@@ -140,37 +147,37 @@ export class AnalyzerServerManager {
   }
 
   private async getAvaiablePort(): Promise<Result<number>> {
-    return tryCatch(async () => {
+    return tryCatchPromise(async () => {
       return new Promise<number>((resolve, reject) => {
         const checkPortAvailable = (portToCheck: number) => {
           const server = new Server();
           let timeoutFunc: NodeJS.Timeout;
-  
+
           server.once("error", (error: NodeJS.ErrnoException) => {
             clearTimeout(timeoutFunc);
             server.close();
-  
+
             if (error.code !== "EADDRINUSE") {
               return [new Error(`Unknown error occured: ${error}`)];
             }
-  
+
             const nextPortToTry = portToCheck + 1;
-  
+
             if (nextPortToTry > this.maxPort) {
               return [new Error("All ports are occupied")];
             }
-  
+
             return checkPortAvailable(nextPortToTry);
           });
-  
+
           server.once("listening", () => {
             clearTimeout(timeoutFunc);
             server.close();
             resolve(portToCheck); // Porten är tillgänglig
           });
-  
-          server.listen(portToCheck, "127.0.0.1");
-  
+
+          server.listen(portToCheck, this.localhostIp);
+
           timeoutFunc = setTimeout(() => {
             server.close();
             return [
@@ -180,14 +187,14 @@ export class AnalyzerServerManager {
             ];
           }, 3000);
         };
-  
+
         checkPortAvailable(this.minPort);
       });
     });
   }
 
   private buildServerBaseUrl(port: number) {
-    return `${this.localHost}:${port}`;
+    return `${this.localhostUrl}:${port}`;
   }
 
   private buildServerStatusUrl(serverBaseUrl: string) {

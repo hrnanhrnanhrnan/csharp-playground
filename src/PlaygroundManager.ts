@@ -1,20 +1,20 @@
 import * as vscode from "vscode";
 import { existsSync } from "fs";
 import path from "path";
-import { copyFile, mkdir, rm } from "fs/promises";
+import { mkdir, rm } from "fs/promises";
 import { AnalyzerServerManager } from "./AnalyzerServerManager";
 import { PlaygroundPathMananger } from "./PlaygroundPathMananger";
 import {
   extensionName,
-  maxServerRetries,
-  playgroundRunnerTerminalName,
   shell,
 } from "./constants";
 import { PlaygroundOutputChannel } from "./PlaygroundOutputChannel";
-import { runExecCommand, tryCatch } from "./utils";
+import { runExecCommand, safeCopyFile, tryCatchPromise } from "./utils";
 import { PlaygroundExtensionManager } from "./PlaygroundExtensionManager";
 
 export class PlaygroundManager {
+  private readonly playgroundRunnerTerminalName = "Playground-runner";
+  private readonly maxServerRetries = 15;
   private readonly extensionManager: PlaygroundExtensionManager;
   private readonly serverManager: AnalyzerServerManager;
   private readonly channel: PlaygroundOutputChannel;
@@ -37,7 +37,7 @@ export class PlaygroundManager {
   }
 
   async refreshAnalyzerServerOnDisk() {
-    return tryCatch(async () => {
+    const [error] = await tryCatchPromise(async () => {
       if (!existsSync(this.pathManager.analyzerServerDirPath)) {
         return true;
       }
@@ -47,14 +47,22 @@ export class PlaygroundManager {
         force: true,
       });
 
-      await this.tryCreateAnalyzerServer();
-
-      return true;
+      return await this.tryCreateAnalyzerServer();
     });
+
+    if (error) {
+      this.channel.printErrorToChannel(
+        "Could not refresh analyzer server on disk",
+        error
+      );
+      return false;
+    }
+
+    return true;
   }
 
   async openTextDocument(): Promise<Result<vscode.TextDocument>> {
-    return tryCatch(async () => {
+    return tryCatchPromise(async () => {
       const document = await vscode.workspace.openTextDocument(
         this.pathManager.playgroundProgramFileUri
       );
@@ -86,12 +94,12 @@ export class PlaygroundManager {
   }
 
   async startPlaygroundInTerminal() {
-    return tryCatch(async () => {
+    return tryCatchPromise(async () => {
       const analyzerServerTerminal =
         await this.serverManager.startServerInTerminal();
 
       const playgroundTerminal = vscode.window.createTerminal({
-        name: playgroundRunnerTerminalName,
+        name: this.playgroundRunnerTerminalName,
         cwd: this.pathManager.playgroundDirPath,
         shellPath: shell,
         location: {
@@ -108,7 +116,7 @@ export class PlaygroundManager {
   disposeTerminals() {
     this.serverManager.disposeServer();
     const playgroundTerminal = vscode.window.terminals.find(
-      (x) => x.name === playgroundRunnerTerminalName
+      (x) => x.name === this.playgroundRunnerTerminalName
     );
 
     if (!playgroundTerminal) {
@@ -128,7 +136,15 @@ export class PlaygroundManager {
 
   async createPlayground(dotneVersion: number | undefined): Promise<boolean> {
     const dirPath = this.pathManager.playgroundDirPath;
-    await mkdir(dirPath, { recursive: true });
+    const [createDirError] = await tryCatchPromise(mkdir(dirPath, { recursive: true }));
+
+    if (createDirError) {
+      this.channel.printErrorToChannel(
+        `Could not create directory for playground at path: ${dirPath}`,
+        createDirError
+      );
+      return false;
+    }
 
     const wantedVersion =
       this.extensionManager.installedDotnetVersions[dotneVersion ?? 0];
@@ -148,21 +164,20 @@ export class PlaygroundManager {
       return false;
     }
 
-    const [copyInitFileError] = await this.safeCopyFile(
+    const [copyInitFileError] = await safeCopyFile(
       this.pathManager.playgroundInitalizationResourceFilePath,
       this.pathManager.playgroundInitalizationFilePath
-      
     );
 
     if (copyInitFileError) {
       this.channel.printErrorToChannel(
-        `Could not copy playground intitialization file to path: `,
+        `Could not copy playground intitialization file`,
         copyInitFileError
       );
       return false;
     }
 
-    const [copyWelcomeFileError] = await this.safeCopyFile(
+    const [copyWelcomeFileError] = await safeCopyFile(
       this.pathManager.analyzerWelcomeMessageResourcePath,
       path.resolve(path.join(dirPath, "Program.cs"))
     );
@@ -187,17 +202,6 @@ export class PlaygroundManager {
 
   dispose() {
     this.serverManager.dispose();
-  }
-
-  async safeCopyFile(
-    srcFilePath: string,
-    destFilePath: string
-  ): Promise<Result<void>> {
-    return tryCatch(async () => {
-      const parentDir = path.dirname(destFilePath);
-      await mkdir(parentDir, { recursive: true });
-      await copyFile(srcFilePath, destFilePath);
-    });
   }
 
   async tryCreateAnalyzerServer() {
@@ -233,7 +237,7 @@ export class PlaygroundManager {
       return false;
     }
 
-    const [copyServerError] = await this.safeCopyFile(
+    const [copyServerError] = await safeCopyFile(
       this.pathManager.analyzerServerResourcePath,
       this.pathManager.analyzerServerFilePath
     );
@@ -258,9 +262,9 @@ export class PlaygroundManager {
   async waitForAnalyzerServerReady(token: vscode.CancellationToken) {
     let tryCount = 1;
 
-    while (tryCount <= maxServerRetries) {
+    while (tryCount <= this.maxServerRetries) {
       this.channel.appendLine(
-        `Checking if Analyzer server is ready, try ${tryCount} of ${maxServerRetries}`
+        `Checking if Analyzer server is ready, try ${tryCount} of ${this.maxServerRetries}`
       );
 
       if (token.isCancellationRequested) {

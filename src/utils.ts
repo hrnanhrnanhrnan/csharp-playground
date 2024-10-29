@@ -4,6 +4,7 @@ import * as vscode from "vscode";
 import { promisify } from "util";
 import { exec } from "child_process";
 import { PlaygroundOutputChannel } from "./PlaygroundOutputChannel";
+import { copyFile, mkdir } from "fs/promises";
 
 export const execPromise = promisify(exec);
 
@@ -35,7 +36,7 @@ export async function runExecCommand(
   cwd: string,
   channel: PlaygroundOutputChannel
 ): Promise<Result<string>> {
-  return tryCatch(
+  return tryCatchPromise(
     async () => {
       const { stdout, stderr } = await execPromise(command, {
         cwd,
@@ -58,7 +59,18 @@ export async function runExecCommand(
   );
 }
 
-export async function tryCatch<T>(
+export async function safeCopyFile(
+  srcFilePath: string,
+  destFilePath: string
+): Promise<Result<void>> {
+  return tryCatchPromise(async () => {
+    const parentDir = path.dirname(destFilePath);
+    await mkdir(parentDir, { recursive: true });
+    await copyFile(srcFilePath, destFilePath);
+  });
+}
+
+export async function tryCatchPromise<T>(
   promise: Promise<T> | (() => Promise<T>),
   errorCallback?: (error: Error) => void,
   finallyCallback?: () => void
@@ -75,8 +87,30 @@ export async function tryCatch<T>(
     }
 
     return [typedError];
+  } finally {
+    if (finallyCallback) {
+      finallyCallback();
+    }
   }
-  finally{
+}
+
+export function tryCatch<T>(
+  func: () => T,
+  errorCallback?: (error: Error) => void,
+  finallyCallback?: () => void
+): Result<T> {
+  try {
+    const result = func();
+    return [undefined, result];
+  } catch (error) {
+    const typedError = (error as Error) ?? new Error(String(error));
+
+    if (errorCallback) {
+      errorCallback(typedError);
+    }
+
+    return [typedError];
+  } finally {
     if (finallyCallback) {
       finallyCallback();
     }

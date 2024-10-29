@@ -33,9 +33,9 @@ app.Run();
 // -- Types --
 sealed record AnalyzeRequest(string Code);
 
-sealed record AnalyzedDataItem(string Line, object Value);
+record struct AnalyzedDataItem(string Line, object Value);
 
-sealed record SyntaxInfo(string VariableName, int LineIndex);
+record struct SyntaxInfo(string VariableName, int LineIndex);
 
 interface IAnalyzer
 {

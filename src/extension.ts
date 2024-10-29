@@ -1,5 +1,3 @@
-// The module 'vscode' contains the VS Code extensibility API
-// Import the module and reference it with the alias vscode in your code below
 import * as vscode from "vscode";
 import { PlaygroundManager } from "./PlaygroundManager";
 import { alertUser } from "./utils";
@@ -17,9 +15,6 @@ import { PlaygroundRunner } from "./PlaygroundRunner";
 let playgroundManager: PlaygroundManager | undefined;
 
 export async function activate(context: vscode.ExtensionContext) {
-  console.log(`The "${extensionName}" extension is now active!`);
-
-  // Setup output channel
   const playgroundChannel = new PlaygroundOutputChannel(extensionName);
   playgroundChannel.appendLine(
     `The "${extensionName}" extension is now active!`
@@ -63,11 +58,17 @@ export async function activate(context: vscode.ExtensionContext) {
   );
 
   const commandResolver = new PlaygroundCommandResolver(playgroundRunner);
+
   const [
     newCommandDisposable,
     continueCommandDisposable,
     stopCommandDisposable,
   ] = await commandResolver.resolveRegisterCommands();
+
+  context.subscriptions.push(inlayHintsDisposable);
+  context.subscriptions.push(newCommandDisposable);
+  context.subscriptions.push(continueCommandDisposable);
+  context.subscriptions.push(stopCommandDisposable);
 
   if (!extensionManager.isDotnetInstalled) {
     alertUser(
@@ -77,14 +78,12 @@ export async function activate(context: vscode.ExtensionContext) {
     );
   }
 
-  if (extensionManager.isUpdated()) {
-    await playgroundManager.refreshAnalyzerServerOnDisk();
+  if (
+    extensionManager.isUpdated() &&
+    (await playgroundManager.refreshAnalyzerServerOnDisk())
+  ) {
+    extensionManager.updateVersionInGlobalStorage();
   }
-
-  context.subscriptions.push(inlayHintsDisposable);
-  context.subscriptions.push(newCommandDisposable);
-  context.subscriptions.push(continueCommandDisposable);
-  context.subscriptions.push(stopCommandDisposable);
 
   const [playgroundStarted, type] =
     await playgroundRunner.isStartPlaygroundRequested();
@@ -95,6 +94,8 @@ export async function activate(context: vscode.ExtensionContext) {
 }
 
 export async function deactivate() {
-  playgroundManager?.shutdown(true);
-  playgroundManager?.dispose();
+  if (playgroundManager) {
+    playgroundManager.shutdown();
+    playgroundManager.dispose();
+  }
 }

@@ -1,11 +1,11 @@
-import * as vscode from 'vscode';
+import * as vscode from "vscode";
 
 export class PlaygroundOutputChannel {
-    private readonly channel: vscode.OutputChannel;
+  private readonly channel: vscode.OutputChannel;
 
-    constructor(channelName: string) {
-        this.channel = vscode.window.createOutputChannel(channelName);
-    }
+  constructor(channelName: string) {
+    this.channel = vscode.window.createOutputChannel(channelName);
+  }
 
   printErrorToChannel(message: string, error: unknown) {
     this.channel.appendLine(
@@ -17,15 +17,15 @@ export class PlaygroundOutputChannel {
     this.channel.appendLine(message);
   }
 
-    clear(): void {
-        this.channel.clear();
-    }
+  clear(): void {
+    this.channel.clear();
+  }
 
-    show(preserveFocus?: boolean): void {
-        this.channel.show(preserveFocus);
-    }
+  show(preserveFocus?: boolean): void {
+    this.channel.show(preserveFocus);
+  }
 
-    dispose(): void {
-        this.channel.dispose();
-    }
+  dispose(): void {
+    this.channel.dispose();
+  }
 }
