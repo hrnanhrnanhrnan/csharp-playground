@@ -67,7 +67,7 @@ export class PlaygroundRunner {
           {
             location: vscode.ProgressLocation.Notification,
             cancellable: true,
-            title: `${extensionName}: ${type} -> `,
+            title: `${extensionName}: ${type} -> `
           },
           async (progress, token) => {
             token.onCancellationRequested(() => {
@@ -153,7 +153,7 @@ export class PlaygroundRunner {
     return [
       state.playgroundStarted &&
         this.playgroundManager.isPlaygroundInWorkspace(),
-      state.typeOfPlayground ?? "New",
+      state.typeOfPlayground ?? "New"
     ];
   }
 
@@ -167,7 +167,7 @@ export class PlaygroundRunner {
       {
         location: vscode.ProgressLocation.Notification,
         cancellable: true,
-        title: `${extensionName}: ${type} -> `,
+        title: `${extensionName}: ${type} -> `
       },
       async (progress, token) => {
         token.onCancellationRequested(() => {
@@ -214,7 +214,7 @@ export class PlaygroundRunner {
   private async setPlaygroundStartedState(type: PlaygroundType) {
     return this.stateManager.updateState({
       playgroundStarted: true,
-      typeOfPlayground: type,
+      typeOfPlayground: type
     });
   }
 

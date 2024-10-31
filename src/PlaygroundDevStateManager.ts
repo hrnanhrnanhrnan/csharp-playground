@@ -1,7 +1,7 @@
 export class PlaygroundDevStateManager implements IPlaygroundStateManager {
   private readonly defaultState: PlaygroundState = {
     playgroundStarted: false,
-    typeOfPlayground: undefined,
+    typeOfPlayground: undefined
   };
   private currentState: PlaygroundState = this.defaultState;
 

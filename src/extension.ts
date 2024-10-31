@@ -62,7 +62,7 @@ export async function activate(context: vscode.ExtensionContext) {
   const [
     newCommandDisposable,
     continueCommandDisposable,
-    stopCommandDisposable,
+    stopCommandDisposable
   ] = await commandResolver.resolveRegisterCommands();
 
   context.subscriptions.push(inlayHintsDisposable);
@@ -80,7 +80,7 @@ export async function activate(context: vscode.ExtensionContext) {
 
   if (
     extensionManager.isUpdated() &&
-    (await playgroundManager.refreshAnalyzerServerOnDisk())
+    await playgroundManager.refreshAnalyzerServerOnDisk()
   ) {
     extensionManager.updateVersionInGlobalStorage();
   }

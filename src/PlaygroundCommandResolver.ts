@@ -16,7 +16,7 @@ export class PlaygroundCommandResolver {
     return [
       this.registerNewPlaygroundCommand(),
       this.registerContinuePlaygroundCommand(),
-      this.registerStopPlaygroundCommand(),
+      this.registerStopPlaygroundCommand()
     ];
   }
 

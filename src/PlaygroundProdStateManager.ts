@@ -10,7 +10,7 @@ export class PlaygroundProdStateManager implements IPlaygroundStateManager {
   private readonly stateFilePath: string;
   private readonly defaultState: PlaygroundState = {
     playgroundStarted: false,
-    typeOfPlayground: undefined,
+    typeOfPlayground: undefined
   };
 
   constructor(

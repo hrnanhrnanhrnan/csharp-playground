@@ -40,7 +40,7 @@ export async function runExecCommand(
     async () => {
       const { stdout, stderr } = await execPromise(command, {
         cwd,
-        shell: shell,
+        shell: shell
       });
 
       if (stderr) {
@@ -61,13 +61,14 @@ export async function runExecCommand(
 
 export async function safeCopyFile(
   srcFilePath: string,
-  destFilePath: string
+  destFilePath: string,
+  errorCallback?: (error: Error) => void
 ): Promise<Result<void>> {
   return tryCatchPromise(async () => {
     const parentDir = path.dirname(destFilePath);
     await mkdir(parentDir, { recursive: true });
     await copyFile(srcFilePath, destFilePath);
-  });
+  }, errorCallback);
 }
 
 export async function tryCatchPromise<T>(

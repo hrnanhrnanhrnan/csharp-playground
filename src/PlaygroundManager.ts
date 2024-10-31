@@ -1,13 +1,9 @@
 import * as vscode from "vscode";
 import { existsSync } from "fs";
-import path from "path";
 import { mkdir, rm } from "fs/promises";
 import { AnalyzerServerManager } from "./AnalyzerServerManager";
 import { PlaygroundPathMananger } from "./PlaygroundPathMananger";
-import {
-  extensionName,
-  shell,
-} from "./constants";
+import { extensionName, shell } from "./constants";
 import { PlaygroundOutputChannel } from "./PlaygroundOutputChannel";
 import { runExecCommand, safeCopyFile, tryCatchPromise } from "./utils";
 import { PlaygroundExtensionManager } from "./PlaygroundExtensionManager";
@@ -44,7 +40,7 @@ export class PlaygroundManager {
 
       await rm(this.pathManager.analyzerServerDirPath, {
         recursive: true,
-        force: true,
+        force: true
       });
 
       return await this.tryCreateAnalyzerServer();
@@ -103,8 +99,8 @@ export class PlaygroundManager {
         cwd: this.pathManager.playgroundDirPath,
         shellPath: shell,
         location: {
-          parentTerminal: analyzerServerTerminal,
-        },
+          parentTerminal: analyzerServerTerminal
+        }
       });
 
       playgroundTerminal.sendText("dotnet watch run");
@@ -136,7 +132,9 @@ export class PlaygroundManager {
 
   async createPlayground(dotneVersion: number | undefined): Promise<boolean> {
     const dirPath = this.pathManager.playgroundDirPath;
-    const [createDirError] = await tryCatchPromise(mkdir(dirPath, { recursive: true }));
+    const [createDirError] = await tryCatchPromise(
+      mkdir(dirPath, { recursive: true })
+    );
 
     if (createDirError) {
       this.channel.printErrorToChannel(
@@ -164,33 +162,33 @@ export class PlaygroundManager {
       return false;
     }
 
-    const [copyInitFileError] = await safeCopyFile(
+    const copyInitFilePromise = safeCopyFile(
       this.pathManager.playgroundInitalizationResourceFilePath,
-      this.pathManager.playgroundInitalizationFilePath
+      this.pathManager.playgroundInitalizationFilePath,
+      (error) =>
+        this.channel.printErrorToChannel(
+          `Could not copy playground intitialization file`,
+          error
+        )
     );
 
-    if (copyInitFileError) {
-      this.channel.printErrorToChannel(
-        `Could not copy playground intitialization file`,
-        copyInitFileError
-      );
-      return false;
-    }
-
-    const [copyWelcomeFileError] = await safeCopyFile(
-      this.pathManager.analyzerWelcomeMessageResourcePath,
-      path.resolve(path.join(dirPath, "Program.cs"))
+    const copyWelcomeFilePromise = safeCopyFile(
+      this.pathManager.playgroundWelcomeMessageResourcePath,
+      this.pathManager.playgroundProgramFilePath,
+      (error) =>
+        this.channel.printErrorToChannel(
+          `Could not copy welcome message file`,
+          error
+        )
     );
 
-    if (copyWelcomeFileError) {
-      this.channel.printErrorToChannel(
-        `Could not copy welcome message file`,
-        copyInitFileError
-      );
-      return false;
-    }
+    const promises = await Promise.all([
+      copyInitFilePromise,
+      copyWelcomeFilePromise
+    ]);
+    const errorsOccured = promises.some(([error]) => error);
 
-    return true;
+    return !errorsOccured;
   }
 
   shutdown(clearWorkspace: boolean = false) {
@@ -209,7 +207,17 @@ export class PlaygroundManager {
       return true;
     }
 
-    await mkdir(this.pathManager.analyzerServerDirPath, { recursive: true });
+    const [createDirError] = await tryCatchPromise(
+      mkdir(this.pathManager.analyzerServerDirPath, { recursive: true })
+    );
+
+    if (createDirError) {
+      this.channel.printErrorToChannel(
+        `Could not create analyzer server directory at path: ${this.pathManager.analyzerServerDirPath}`,
+        createDirError
+      );
+      return false;
+    }
 
     const [newWebTemplateError] = await runExecCommand(
       "dotnet new web --force",
@@ -224,32 +232,26 @@ export class PlaygroundManager {
       return false;
     }
 
-    const [addNugetError] = await runExecCommand(
+    const addNugetPromise = runExecCommand(
       "dotnet add package Microsoft.CodeAnalysis.CSharp.Scripting",
       this.pathManager.analyzerServerDirPath,
       this.channel
     );
-    if (addNugetError) {
-      this.channel.printErrorToChannel(
-        `Could not add nuget package to web api`,
-        addNugetError
-      );
-      return false;
-    }
 
-    const [copyServerError] = await safeCopyFile(
+    const copyServerPromise = safeCopyFile(
       this.pathManager.analyzerServerResourcePath,
-      this.pathManager.analyzerServerFilePath
+      this.pathManager.analyzerServerFilePath,
+      (error) =>
+        this.channel.printErrorToChannel(
+          `Could not copy web server to path: ${this.pathManager.analyzerServerFilePath}`,
+          error
+        )
     );
-    if (copyServerError) {
-      this.channel.printErrorToChannel(
-        `Could not copy web server to path: ${this.pathManager.analyzerServerFilePath}`,
-        copyServerError
-      );
-      return false;
-    }
 
-    return true;
+    const promises = await Promise.all([addNugetPromise, copyServerPromise]);
+    const errorsOccured = promises.some(([error]) => error);
+
+    return !errorsOccured;
   }
 
   async analyzeCode(document: vscode.TextDocument) {

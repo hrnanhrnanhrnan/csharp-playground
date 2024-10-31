@@ -33,7 +33,7 @@ export class PlaygroundPathMananger {
   );
   public readonly analyzerServerCsProjResourcePath: string;
   public readonly analyzerServerResourcePath: string;
-  public readonly analyzerWelcomeMessageResourcePath: string;
+  public readonly playgroundWelcomeMessageResourcePath: string;
   public readonly playgroundInitalizationResourceFilePath: string;
 
   private constructor(context: vscode.ExtensionContext) {
@@ -47,7 +47,7 @@ export class PlaygroundPathMananger {
     this.analyzerServerResourcePath = path.resolve(
       path.join(context.extensionPath, "resources", "AnalyzerServer.cs")
     );
-    this.analyzerWelcomeMessageResourcePath = path.resolve(
+    this.playgroundWelcomeMessageResourcePath = path.resolve(
       path.join(context.extensionPath, "resources", "WelcomeMessage.cs")
     );
     this.playgroundInitalizationResourceFilePath = path.resolve(

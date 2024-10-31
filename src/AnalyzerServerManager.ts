@@ -33,13 +33,13 @@ export class AnalyzerServerManager {
     this.connectionDetails = {
       serverBaseUrl,
       serverAnalyzeUrl,
-      serverStatusUrl,
+      serverStatusUrl
     };
 
     const analyzerServerTerminal = vscode.window.createTerminal({
       name: this.analyzerServerTerminalName,
       cwd: this.serverDirPath,
-      shellPath: shell,
+      shellPath: shell
     });
 
     analyzerServerTerminal.sendText(
@@ -94,9 +94,9 @@ export class AnalyzerServerManager {
       const response = await fetch(endpoint, {
         method: "POST",
         headers: {
-          "Content-Type": "application/json",
+          "Content-Type": "application/json"
         },
-        body: JSON.stringify(payload),
+        body: JSON.stringify(payload)
       });
 
       if (!response.ok) {
@@ -183,7 +183,7 @@ export class AnalyzerServerManager {
             return [
               new Error(
                 `Timeout when checking that port ${portToCheck} is available`
-              ),
+              )
             ];
           }, 3000);
         };

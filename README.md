@@ -1,33 +1,45 @@
-# Introduction
+## C# Playground
 
+C# Playground is a Visual Studio Code extension designed for developers to quickly experiment with C# code in an isolated environment. Get immediate feedback with inline runtime values for variables and everything written to the console – all displayed directly within your editor.
+
+With a single command, you can spin up a dedicated playground environment. The playground automatically runs on save, offering real-time insights by displaying inline values for all global variables and console outputs. Perfect for quick testing, exploring new APIs, or learning C# in an interactive, hassle-free setup.
 
 ## Features
 
-Describe specific features of your extension including screenshots of your extension in action. Image paths are relative to this README file.
+- One-Command Playground Setup: Start a new playground environment with a single command, "New Playground." This will open a temporary project workspace in a new window where you can write and test C# code in isolation. When you're done just close the window or run the "Stop playground" command. To continue where you previously left off, just run the "Continue Playground" command to open up the workspace again.
 
-For example if there is an image subfolder under your extension project workspace:
+- Inline Runtime Feedback: On each save, C# Playground displays inline runtime values for all global variables and everything printed to the console, directly at the end of each relevant line. This saves you time and allows for immediate feedback without switching contexts.
 
-\!\[feature X\]\(images/feature-x.png\)
+- Quick Experimentation: Ideal for prototyping, testing ideas, or learning – without affecting your main projects or workspace setup.
 
-> Tip: Many popular extensions utilize animations. This is an excellent way to show off your extension! We recommend short, focused animations that are easy to follow.
+![](/images/playground.gif)
 
-## Requirements
+## Installation
 
-If you have any requirements or dependencies, add a section describing those and how to install and configure them.
+To install C# Playground:
+
+1. Open Visual Studio Code.
+2. Go to the Extensions Marketplace and search for "C# Playground."
+3. Click "Install" to add it to your extensions.
+
+Once installed, you’re ready to start coding in the playground!
 
 ## Extension Settings
 
-This extension contributes the following settings:
+You can configure the following settings to customize your C# Playground experience:
 
-* `csharp-playground.analyzerServerPort`: Edit the port for the analyzer server to run at.
+* `csharp-playground.dotnetVersion`: Define the version of .NET to use when initializing a new playground. For example, specify `8` to use `.NET 8 (net8)`. If left unspecified or set to an invalid version, the playground defaults to the latest installed .NET version on your system.
 
 ## Known Issues
 
+Currently, C# Playground operates in a separate window from your main workspace. While initially intended to integrate into the active workspace, doing so led to issues with Omnisharp. Adding the playground to the current workspace caused Omnisharp to activate on the newly added project and consequently lose LSP (Language Server Protocol) functionality for any previously open projects. This appears to be a limitation with Omnisharp’s multi-root project support.
+
+No other issues are known at this time.
 
 ## Release Notes
 
-Users appreciate release notes as you update your extension.
+1.0.0
 
-### 0.0.2
-
-Test packaging
+Initial release with full playground functionality.
+Inline runtime values for global variables and console outputs.
+"New Playground" command for rapid setup.
