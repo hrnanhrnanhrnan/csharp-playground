@@ -33,13 +33,15 @@ app.Run();
 // -- Types --
 sealed record AnalyzeRequest(string Code);
 
-record struct AnalyzedDataItem(string Line, object Value);
+record struct AnalyzedCodeResult(string? Error, List<AnalyzedCodeItem> AnalyzedCodeItems);
+
+record struct AnalyzedCodeItem(string Line, object Value);
 
 record struct SyntaxInfo(string VariableName, int LineIndex);
 
 interface IAnalyzer
 {
-    Task<List<AnalyzedDataItem>> Analyze(string code);
+    Task<AnalyzedCodeResult> Analyze(string code);
 }
 
 interface ITreeWalker
@@ -67,13 +69,13 @@ sealed class Analyzer(
             Statics.ScriptOptionImports
         );
 
-    public async Task<List<AnalyzedDataItem>> Analyze(string code)
+    public async Task<AnalyzedCodeResult> Analyze(string code)
     {
-        List<AnalyzedDataItem> analyzedData = [];
+        List<AnalyzedCodeItem> analyzedData = [];
 
         if (code is null)
         {
-            return analyzedData;
+            return new(null, analyzedData);
         }
 
         var syntaxTree = CSharpSyntaxTree.ParseText(code);
@@ -92,14 +94,17 @@ sealed class Analyzer(
         treeWalker.SetSemanticModel(semanticModel);
         treeWalker.Visit(root);
 
-        var (state, writeLines) = await runCodeTask;
+        var (error, state, writeLines) = await runCodeTask;
 
-        if (state is null)
+        if (error is not null)
         {
-            return analyzedData;
+            return new(error, analyzedData);
         }
 
-        var variables = state.Variables.ToDictionary(x => x.Name, x => (x.Type, x.Value));
+        var variables = state
+            ?.Variables
+            .ToDictionary(x => x.Name, x => (x.Type, x.Value))
+            ?? [];
 
         foreach (var syntaxInfo in treeWalker.Results)
         {
@@ -114,10 +119,10 @@ sealed class Analyzer(
 
         analyzedData.AddRange(writeLines);
 
-        return analyzedData;
+        return new(null, analyzedData);
     }
 
-    private async Task<(ScriptState<object>? state, AnalyzedDataItem[] dataItems)> RunModifiedCodeAsync(
+    private async Task<(string? error, ScriptState<object>? state, AnalyzedCodeItem[] dataItems)> RunModifiedCodeAsync(
         CompilationUnitSyntax root,
         string[] lines)
     {
@@ -125,7 +130,7 @@ sealed class Analyzer(
         var modifiedRoot = consoleOutRewriter.Visit(root);
         if (modifiedRoot is null)
         {
-            return (null, []);
+            return (null, null, []);
         }
 
         var fullCode = modifiedRoot.ToFullString();
@@ -143,19 +148,19 @@ sealed class Analyzer(
                 ScriptOptions
             );
         }
-        catch
+        catch (Exception ex)
         {
-            return (null, []);
+            return (ex.Message, null, []);
         }
 
         Console.SetOut(originalOut);
 
         var capturedWritelines = consoleCapturer
             .Lines
-            .Select(x => new AnalyzedDataItem(lines[Statics.GetWriteLineLineIndex(x)], Statics.GetWriteLineValue(x)))
+            .Select(x => new AnalyzedCodeItem(lines[Statics.GetWriteLineLineIndex(x)], Statics.GetWriteLineValue(x)))
             .ToArray();
 
-        return (scriptState!, capturedWritelines ?? []);
+        return (null, scriptState, capturedWritelines ?? []);
     }
 }
 
@@ -198,7 +203,8 @@ static class Statics
         MetadataReference.CreateFromFile(typeof(Enumerable).Assembly.Location),
         MetadataReference.CreateFromFile(typeof(System.Runtime.CompilerServices.DynamicAttribute).Assembly.Location),
         MetadataReference.CreateFromFile(typeof(ValueTuple<>).Assembly.Location),
-        MetadataReference.CreateFromFile(typeof(Console).Assembly.Location)
+        MetadataReference.CreateFromFile(typeof(Console).Assembly.Location),
+        MetadataReference.CreateFromFile(typeof(Tuple).Assembly.Location)
     ];
 
     public const string WriteLineAdjusterClassName = "WriteLineAdjuster81927381273916428631286418926491624123123";

@@ -32,9 +32,10 @@ You can configure the following settings to customize your C# Playground experie
 
 ## Known Issues
 
-Currently, C# Playground operates in a separate window from your main workspace. While initially intended to integrate into the active workspace, doing so led to issues with Omnisharp. Adding the playground to the current workspace caused Omnisharp to activate on the newly added project and consequently lose LSP (Language Server Protocol) functionality for any previously open projects. This appears to be a limitation with Omnisharp’s multi-root project support.
+- Tuple deconstruction seems not to be allowed at the top level in Roslyn scripting. The scripting environment imposes certain restrictions on the syntax that can be used at the top level of a script 
 
-No other issues are known at this time.
+- Currently, C# Playground operates in a separate window from your main workspace. While initially intended to integrate into the active workspace, doing so led to issues with Omnisharp. Adding the playground to the current workspace caused Omnisharp to activate on the newly added project and consequently lose LSP (Language Server Protocol) functionality for any previously open projects. This appears to be a limitation with Omnisharp’s multi-root project support.
+
 
 ## Release Notes
 

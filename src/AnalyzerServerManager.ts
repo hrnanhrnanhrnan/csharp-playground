@@ -17,7 +17,7 @@ export class AnalyzerServerManager {
   private readonly maxPort = 5040;
   private connectionDetails: AnalyzerServerConnectionDetails | undefined;
   private readonly _onCodeAnalyzed = new vscode.EventEmitter<
-    AnalyzedDataItem[]
+    AnalyzedCodeItem[]
   >();
   public readonly onCodeAnalyzed = this._onCodeAnalyzed.event;
 
@@ -105,8 +105,15 @@ export class AnalyzerServerManager {
         );
       }
 
-      const analyzedDataItems = await response.json();
-      this._onCodeAnalyzed.fire(analyzedDataItems);
+      const obj = await response.json();
+
+      if (obj.error) {
+        throw new Error(
+          obj.error
+        );
+      }
+
+      this._onCodeAnalyzed.fire(obj.analyzedCodeItems);
     });
   }
 

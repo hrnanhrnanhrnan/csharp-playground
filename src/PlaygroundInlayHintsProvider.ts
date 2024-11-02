@@ -3,7 +3,7 @@ import { AnalyzerServerManager } from "./AnalyzerServerManager";
 
 export class PlaygroundInlayHintsProvider implements vscode.InlayHintsProvider {
   private readonly serverManager: AnalyzerServerManager;
-  private analyzerData: AnalyzedDataItem[] = [];
+  private analyzedCodeItems: AnalyzedCodeItem[] = [];
   private readonly _onDidChangeInlayHints = new vscode.EventEmitter<void>();
   readonly onDidChangeInlayHints = this._onDidChangeInlayHints.event;
 
@@ -11,7 +11,7 @@ export class PlaygroundInlayHintsProvider implements vscode.InlayHintsProvider {
     this.serverManager = serverManager;
 
     this.serverManager.onCodeAnalyzed((analyzedDataItems) => {
-      this.analyzerData = analyzedDataItems;
+      this.analyzedCodeItems = analyzedDataItems;
       this._onDidChangeInlayHints.fire();
     });
   }
@@ -21,7 +21,7 @@ export class PlaygroundInlayHintsProvider implements vscode.InlayHintsProvider {
     range: vscode.Range,
     token: vscode.CancellationToken
   ): vscode.ProviderResult<vscode.InlayHint[]> {
-    if (this.analyzerData.length === 0) {
+    if (this.analyzedCodeItems.length === 0) {
       return;
     }
 
@@ -30,7 +30,7 @@ export class PlaygroundInlayHintsProvider implements vscode.InlayHintsProvider {
     for (let i = 0; i < document.lineCount; i++) {
       const line = document.lineAt(i);
 
-      const match = this.analyzerData.find(
+      const match = this.analyzedCodeItems.find(
         (x) => x.line.trim() === line.text.trim()
       );
 

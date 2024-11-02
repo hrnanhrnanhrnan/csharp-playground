@@ -1,4 +1,4 @@
-type AnalyzedDataItem = {
+type AnalyzedCodeItem = {
   line: string;
   value: string;
 };
