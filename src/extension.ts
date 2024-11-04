@@ -15,6 +15,7 @@ import { PlaygroundRunner } from "./PlaygroundRunner";
 let playgroundManager: PlaygroundManager | undefined;
 
 export async function activate(context: vscode.ExtensionContext) {
+  // testing
   const playgroundChannel = new PlaygroundOutputChannel(extensionName);
   playgroundChannel.appendLine(
     `The "${extensionName}" extension is now active!`
