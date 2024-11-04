@@ -24,6 +24,7 @@ export class AnalyzerServerManager {
   constructor(serverDirPath: string, channel: PlaygroundOutputChannel) {
     this.channel = channel;
     this.serverDirPath = serverDirPath;
+    // Testing
   }
 
   async startServerInTerminal(): Promise<vscode.Terminal> {
