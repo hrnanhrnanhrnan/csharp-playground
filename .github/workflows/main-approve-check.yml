@@ -1,0 +1,45 @@
+name: main-approve-check
+on:
+  pull_request_review:
+    types:
+      - submitted
+  pull_request:
+    branches:
+      - main
+    types:
+      - edited
+      - synchronize
+      - reopened
+      - ready_for_review
+
+jobs:
+  check-approver:
+    runs-on: ubuntu-latest
+    steps:
+      - name: check approver
+        uses: actions/github-script@v6
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            const core = require('@actions/core');
+            const prNumber = context.payload.pull_request.number;
+            const owner = context.repo.owner;
+            const repo = context.repo.repo;
+
+            const { data: reviews } = await github.rest.pulls.listReviews({
+              owner,
+              repo,
+              pull_number: prNumber,
+            });
+
+            const approvedBy = reviews
+              .filter(review => review.state === 'APPROVED')
+              .map(review => review.user.login);
+
+            const requiredApprover = 'hrnanhrnanhrnan';
+
+            if (approvedBy.includes(requiredApprover)) {
+              core.notice(`Pull request approved by ${requiredApprover}.`);
+            } else {
+              core.setFailed(`Pull request must be approved by ${requiredApprover}.`);
+            }
