@@ -8,7 +8,7 @@ on:
     branches:
       - main
       - dev
-      - release/** 
+      - release/**
     types:
       - opened
       - edited
@@ -29,7 +29,6 @@ jobs:
           github-token: ${{ secrets.GITHUB_TOKEN }}
           script: |
             const fs = require('fs');
-            const core = require('@actions/core');
             const prNumber = context.payload.pull_request.number;
             const owner = context.repo.owner;
             const repo = context.repo.repo;

@@ -19,7 +19,6 @@ jobs:
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
           script: |
-            const core = require('@actions/core');
             const tagRef = context.ref; // refs/tags/v1.0.0
             const tagName = tagRef.replace('refs/tags/', '');
             const owner = context.repo.owner;
