@@ -1,0 +1,65 @@
+name: Build and Package Extension
+
+on:
+  push:
+    tags:
+      - 'v*'  # Matchar taggar som börjar med 'v'
+
+jobs:
+  build-and-package:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v3
+        with:
+          fetch-depth: 0  # Hämta hela historiken för att kunna kontrollera brancher
+
+      - name: Verify tag is on a release branch
+        shell: bash
+        run: |
+          TAG_COMMIT_SHA=$(git rev-parse $GITHUB_REF)
+          echo "Tag commit SHA: $TAG_COMMIT_SHA"
+
+          # Hämta alla brancher som innehåller denna commit
+          BRANCHES=$(git branch -r --contains $TAG_COMMIT_SHA)
+          echo "Brancher som innehåller taggens commit:"
+          echo "$BRANCHES"
+
+          # Kontrollera om någon av brancherna matchar release/*
+          if echo "$BRANCHES" | grep -qE 'origin/release/'; then
+            echo "Taggen är på en release-branch."
+          else
+            echo "Taggen är inte på en release-branch. Avslutar workflow."
+            exit 1
+          fi
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v3
+        with:
+          node-version: '14'  # Använd den Node-version du behöver
+
+      - name: Install dependencies
+        run: npm install
+
+      - name: Update package.json version
+        run: |
+          VERSION=${GITHUB_REF#refs/tags/v}
+          echo "Uppdaterar version till $VERSION"
+          npm version --no-git-tag-version $VERSION
+
+      - name: Install vsce
+        run: npm install -g @vscode/vsce
+
+      - name: Package Extension
+        run: vsce package
+
+      - name: Upload Artifact
+        uses: actions/upload-artifact@v3
+        with:
+          name: vsce-package
+          path: '*.vsix'
+
+      - name: Publish Artifact
+        run: vsce publish
+        env:
+          VSCE_PAT: ${{ secrets.VSCE_TOKEN }}
