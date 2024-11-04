@@ -1,0 +1,95 @@
+name: Approve Check
+
+on:
+  pull_request_review:
+    types:
+      - submitted
+  pull_request:
+    branches:
+      - main
+      - dev
+      - release/** 
+    types:
+      - opened
+      - edited
+      - synchronize
+      - reopened
+      - ready_for_review
+
+jobs:
+  check-approver:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v3
+
+      - name: Kontrollera godkännare
+        uses: actions/github-script@v6
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            const fs = require('fs');
+            const core = require('@actions/core');
+            const prNumber = context.payload.pull_request.number;
+            const owner = context.repo.owner;
+            const repo = context.repo.repo;
+            const targetBranch = context.payload.pull_request.base.ref;
+
+            // Läs in CODEOWNERS-filen
+            let codeownersContent;
+            try {
+              codeownersContent = fs.readFileSync('.github/CODEOWNERS', 'utf8');
+            } catch (error) {
+              core.setFailed('Kunde inte läsa CODEOWNERS-filen.');
+              return;
+            }
+
+            // Parsar CODEOWNERS-filen
+            const codeownersLines = codeownersContent.split('\n').filter(line => line.trim() !== '');
+            let requiredApprovers = [];
+
+            for (const line of codeownersLines) {
+              // Ignorera kommentarer
+              if (line.startsWith('#')) continue;
+
+              const [pattern, ...owners] = line.trim().split(/\s+/);
+
+              // Hantera branch-specifika mönster
+              if (pattern.startsWith('branch:')) {
+                const branchPattern = pattern.replace('branch:', '');
+                const regexPattern = '^' + branchPattern.replace('*', '.*') + '$';
+                const branchRegex = new RegExp(regexPattern);
+
+                if (branchRegex.test(targetBranch)) {
+                  requiredApprovers.push(...owners.map(owner => owner.replace('@', '')));
+                }
+              }
+            }
+
+            // Ta bort eventuella dubbletter
+            requiredApprovers = [...new Set(requiredApprovers)];
+
+            if (requiredApprovers.length === 0) {
+              core.setFailed(`Inga godkännare definierade för branchen '${targetBranch}' i CODEOWNERS.`);
+              return;
+            }
+
+            // Hämta listan över godkännare för PR:n
+            const { data: reviews } = await github.rest.pulls.listReviews({
+              owner,
+              repo,
+              pull_number: prNumber,
+            });
+
+            const approvedBy = reviews
+              .filter(review => review.state === 'APPROVED')
+              .map(review => review.user.login);
+
+            // Kontrollera om någon av de nödvändiga godkännarna har godkänt PR:n
+            const hasRequiredApproval = requiredApprovers.some(user => approvedBy.includes(user));
+
+            if (hasRequiredApproval) {
+              core.notice(`Pull request är godkänd av en behörig användare.`);
+            } else {
+              core.setFailed(`Pull request måste godkännas av någon av följande användare: ${requiredApprovers.join(', ')}.`);
+            }
