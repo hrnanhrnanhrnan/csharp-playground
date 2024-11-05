@@ -48,7 +48,7 @@ export class PlaygroundManager {
 
     if (error) {
       this.channel.printErrorToChannel(
-        "Could not refresh analyzer server on disk",
+        "Following error occurred trying to refresh analyzer server",
         error
       );
       return false;
@@ -138,7 +138,7 @@ export class PlaygroundManager {
 
     if (createDirError) {
       this.channel.printErrorToChannel(
-        `Could not create directory for playground at path: ${dirPath}`,
+        `Following error occurred trying to create directory for playground at path: ${dirPath}`,
         createDirError
       );
       return false;
@@ -156,7 +156,7 @@ export class PlaygroundManager {
 
     if (newConsoleError) {
       this.channel.printErrorToChannel(
-        `Could not create new console application template at path: ${dirPath}`,
+        `Following error occurred trying to create new console application template at path: ${dirPath}`,
         newConsoleError
       );
       return false;
@@ -167,7 +167,7 @@ export class PlaygroundManager {
       this.pathManager.playgroundInitalizationFilePath,
       (error) =>
         this.channel.printErrorToChannel(
-          `Could not copy playground intitialization file`,
+          "Following error occurred trying to copy playground intitialization file",
           error
         )
     );
@@ -177,7 +177,7 @@ export class PlaygroundManager {
       this.pathManager.playgroundProgramFilePath,
       (error) =>
         this.channel.printErrorToChannel(
-          `Could not copy welcome message file`,
+          "Following error occurred trying to copy welcome message file",
           error
         )
     );
@@ -213,7 +213,7 @@ export class PlaygroundManager {
 
     if (createDirError) {
       this.channel.printErrorToChannel(
-        `Could not create analyzer server directory at path: ${this.pathManager.analyzerServerDirPath}`,
+        `Following error occurred trying to create analyzer server directory at path: ${this.pathManager.analyzerServerDirPath}`,
         createDirError
       );
       return false;
@@ -226,7 +226,7 @@ export class PlaygroundManager {
     );
     if (newWebTemplateError) {
       this.channel.printErrorToChannel(
-        `Could not create new web api template at path: ${this.pathManager.analyzerServerDirPath}`,
+        `Following error occurred trying to create new web api template at path: ${this.pathManager.analyzerServerDirPath}`,
         newWebTemplateError
       );
       return false;
@@ -243,7 +243,7 @@ export class PlaygroundManager {
       this.pathManager.analyzerServerFilePath,
       (error) =>
         this.channel.printErrorToChannel(
-          `Could not copy web server to path: ${this.pathManager.analyzerServerFilePath}`,
+          `Following error occurred trying to copy web server to path: ${this.pathManager.analyzerServerFilePath}`,
           error
         )
     );
@@ -257,7 +257,7 @@ export class PlaygroundManager {
   async analyzeCode(document: vscode.TextDocument) {
     const [error] = await this.serverManager.analyzeCode(document.getText());
     if (error) {
-      this.channel.printErrorToChannel("Could not analyze code", error);
+      this.channel.printErrorToChannel("Following error occurred when analyzing code", error);
     }
   }
 

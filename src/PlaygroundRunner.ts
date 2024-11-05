@@ -38,7 +38,7 @@ export class PlaygroundRunner {
   async initializePlayground(type: PlaygroundType) {
     if (!this.extensionManager.isDotnetInstalled) {
       return alertUser(
-        "Cant find that .NET SDK is installed or that PATH is accessible. Have you recently installed, try to reload vscode",
+        "Cant find that any .NET SDK is installed or that PATH is accessible. Have you recently installed, try to reload vscode",
         "error"
       );
     }
@@ -88,7 +88,7 @@ export class PlaygroundRunner {
             if (startPlaygroundError) {
               tokenSource.cancel();
               return alertUser(
-                "It went wrong starting playground in terminal",
+                "Could not start playground in terminal",
                 "error"
               );
             }
@@ -106,7 +106,7 @@ export class PlaygroundRunner {
             if (openDocumentError) {
               tokenSource.cancel();
               return alertUser(
-                "It went wrong opening the file, look in output",
+                "Could not open playground file",
                 "error"
               );
             }
@@ -115,7 +115,7 @@ export class PlaygroundRunner {
             if (!isServerReady) {
               tokenSource.cancel();
               return alertUser(
-                `Could not start Analyzer server, check output for more information`,
+                `Could not start Analyzer server`,
                 "error"
               );
             }
@@ -127,7 +127,7 @@ export class PlaygroundRunner {
             }
 
             alertUser(
-              `Succesfully created and launched a playground`,
+              `Succesfully created and launched playground`,
               "success"
             );
           }
@@ -136,7 +136,7 @@ export class PlaygroundRunner {
       (error) => {
         tokenSource.cancel();
         this.channel.printErrorToChannel(
-          "Some unecspected error thrown when starting playground",
+          "Following error occurred when trying to start playground",
           error
         );
       },
@@ -184,7 +184,7 @@ export class PlaygroundRunner {
           !(await this.playgroundManager.createPlayground(config.dotnetVersion))
         ) {
           return (errorMessage =
-            "It went wrong creating the project, look in output");
+            "Could not create the Playground project");
         }
 
         progress.report({ message: "Setting up the analyzer server..." });
@@ -195,7 +195,7 @@ export class PlaygroundRunner {
         }
 
         if (!(await this.playgroundManager.tryCreateAnalyzerServer())) {
-          return (errorMessage = `Something went wrong trying to create analyzer server, check output for more information`);
+          return (errorMessage = "Could not create the Analyzer Server project");
         }
       }
     );

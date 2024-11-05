@@ -21,7 +21,8 @@ export function equalPaths(firstPath: string, secondPath: string) {
 
 export function alertUser(message: string, type: "error" | "success") {
   const alertMessage = `${extensionName}: 
-          ${message}`;
+          ${message}.
+          See output for more details.`;
 
   if (type === "error") {
     vscode.window.showErrorMessage(alertMessage);
