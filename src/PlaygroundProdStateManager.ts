@@ -34,7 +34,10 @@ export class PlaygroundProdStateManager implements IPlaygroundStateManager {
     });
 
     if (error) {
-      this.channel.printErrorToChannel("Could not read state from file", error);
+      this.channel.printErrorToChannel(
+        `Following error occurred when reading state from file at path: ${this.stateFilePath}`,
+        error
+      );
     }
 
     return playgroundState ?? this.defaultState;
@@ -45,7 +48,10 @@ export class PlaygroundProdStateManager implements IPlaygroundStateManager {
       writeFile(this.stateFilePath, JSON.stringify(updatedState), "utf8")
     );
     if (error) {
-      this.channel.printErrorToChannel("Could not update state", error);
+      this.channel.printErrorToChannel(
+        "Following error occurred when trying to update state",
+        error
+      );
       return false;
     }
 

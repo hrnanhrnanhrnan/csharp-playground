@@ -72,8 +72,8 @@ export async function activate(context: vscode.ExtensionContext) {
 
   if (!extensionManager.isDotnetInstalled) {
     alertUser(
-      `Cant find that the .NET SDK is installed or that PATH is accessible. 
-        Make sure that the .NET SDK is installed and that dotnet is added to PATH.`,
+      `Cant find that any .NET SDK is installed or that PATH is accessible. 
+        Make sure that a .NET SDK is installed and that dotnet is added to PATH`,
       "error"
     );
   }

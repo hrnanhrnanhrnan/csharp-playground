@@ -3,7 +3,7 @@ name: Build and Package Extension
 on:
   push:
     tags:
-      - 'v*'  # Matchar taggar som börjar med 'v'
+      - 'v*'
 
 jobs:
   build-and-package:
@@ -12,7 +12,7 @@ jobs:
       - name: Check out repository
         uses: actions/checkout@v3
         with:
-          fetch-depth: 0  # Hämta hela historiken för att kunna kontrollera brancher
+          fetch-depth: 0
 
       - name: Verify tag is on a release branch
         shell: bash
@@ -20,16 +20,14 @@ jobs:
           TAG_COMMIT_SHA=$(git rev-parse $GITHUB_REF)
           echo "Tag commit SHA: $TAG_COMMIT_SHA"
 
-          # Hämta alla brancher som innehåller denna commit
           BRANCHES=$(git branch -r --contains $TAG_COMMIT_SHA)
-          echo "Brancher som innehåller taggens commit:"
+          echo "Branches containing the commit of the tag:"
           echo "$BRANCHES"
 
-          # Kontrollera om någon av brancherna matchar release/*
           if echo "$BRANCHES" | grep -qE 'origin/release/'; then
-            echo "Taggen är på en release-branch."
+            echo "The tag is on a release-branch."
           else
-            echo "Taggen är inte på en release-branch. Avslutar workflow."
+            echo "The tag is not on a release-branch. Ending workflow."
             exit 1
           fi
 
@@ -44,7 +42,7 @@ jobs:
       - name: Update package.json version
         run: |
           VERSION=${GITHUB_REF#refs/tags/v}
-          echo "Uppdaterar version till $VERSION"
+          echo "Updating version to $VERSION"
           npm version --no-git-tag-version $VERSION
 
       - name: Install vsce
@@ -63,3 +61,32 @@ jobs:
         run: vsce publish
         env:
           VSCE_PAT: ${{ secrets.VSCE_TOKEN }}
+        
+      - name: Upload Artifact
+        uses: actions/upload-artifact@v3
+        with:
+          name: vsce-package
+          path: '*.vsix'
+
+      - name: Create GitHub Release
+        id: create_release
+        uses: actions/create-release@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tag_name: ${{ github.ref }}
+          release_name: Release ${{ github.ref }}
+          body: |
+            Automatically generated release for version ${{ github.ref }}.
+          draft: false
+          prerelease: false
+
+      - name: Upload Release Asset
+        uses: actions/upload-release-asset@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          upload_url: ${{ steps.create_release.outputs.upload_url }}
+          asset_path: ./csharp-playground-${{ github.ref }}.vsix
+          asset_name: csharp-playground-${{ github.ref }}.vsix
+          asset_content_type: application/octet-stream

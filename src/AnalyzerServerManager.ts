@@ -79,7 +79,7 @@ export class AnalyzerServerManager {
 
     if (error) {
       this.channel.printErrorToChannel(
-        "Following error occurred checking server is alive",
+        "Following error occurred when checking if server is alive",
         error
       );
       return false;
@@ -145,7 +145,7 @@ export class AnalyzerServerManager {
     if (error) {
       this.channel.printErrorToChannel(
         `Could not find available port, will fallback to use debugPort ${this.debugDefaultPort}. 
-        Following error occured when trying to fetch available port.`,
+        Following error occured when trying to fetch available port`,
         error
       );
     }
