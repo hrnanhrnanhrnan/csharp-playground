@@ -87,7 +87,7 @@ export class PlaygroundExtensionManager {
     channel: PlaygroundOutputChannel
   ): Promise<number[]> {
     channel.appendLine(
-      "Checking that any .NET SDK is installed and that PATH is accessible"
+      "Checking that a .NET SDK is installed and that PATH is accessible"
     );
     const [listSdksError, out] = await runExecCommand(
       "dotnet --list-sdks",
@@ -97,7 +97,7 @@ export class PlaygroundExtensionManager {
 
     if (listSdksError) {
       channel.printErrorToChannel(
-        "Cant find that any .NET SDK is installed or that PATH is accessible",
+        "Following error occurred trying to list .NET SDKS's",
         listSdksError
       );
       return [];
@@ -115,7 +115,7 @@ export class PlaygroundExtensionManager {
     });
 
     if (parseSdksError) {
-      channel.printErrorToChannel("Could not parse out SDK's", parseSdksError);
+      channel.printErrorToChannel("Following error occurred trying to parse SDK's", parseSdksError);
       return [];
     }
 
