@@ -1,5 +1,7 @@
 import * as assert from 'assert';
 
+// MAJK WAS HERE IN DEV ALSO!
+
 // You can import and use all API from the 'vscode' module
 // as well as import your extension to test it
 import * as vscode from 'vscode';
