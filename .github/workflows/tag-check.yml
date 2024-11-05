@@ -24,18 +24,21 @@ jobs:
             const owner = context.repo.owner;
             const repo = context.repo.repo;
 
-            // Hämta taggens information
-            const { data: tagData } = await github.rest.git.getTag({
+            // Hämta referensen för taggen
+            const { data: tagRefData } = await github.rest.git.getRef({
               owner,
               repo,
-              tag_sha: context.sha,
+              ref: `tags/${tagName}`,
             });
+
+            // Hämta commitens SHA från taggen
+            const tagObjectSha = tagRefData.object.sha;
 
             // Hämta commitens information
             const { data: commitData } = await github.rest.git.getCommit({
               owner,
               repo,
-              commit_sha: tagData.object.sha,
+              commit_sha: tagObjectSha,
             });
 
             // Hämta brancher som innehåller denna commit
@@ -45,12 +48,21 @@ jobs:
               commit_sha: commitData.sha,
             });
 
-            // Kontrollera om någon av brancherna är en release-branch
+            // Kontrollera om commit finns på en release-branch
             const releaseBranchPattern = /^release\/.+$/;
             const isFromReleaseBranch = branches.some(branch => releaseBranchPattern.test(branch.name));
 
             if (!isFromReleaseBranch) {
-              core.setFailed(`Taggen '${tagName}' är inte skapad från en release-branch.`);
+              core.error(`Taggen '${tagName}' är inte skapad från en release-branch.`);
+
+              // Ta bort taggen
+              await github.rest.git.deleteRef({
+                owner,
+                repo,
+                ref: `tags/${tagName}`,
+              });
+
+              core.setFailed(`Taggen '${tagName}' har tagits bort eftersom den inte uppfyller verifieringskraven.`);
               return;
             }
 
@@ -85,14 +97,15 @@ jobs:
                 break;
             }
 
-            if (!allowedUser) {
-              core.setFailed('Inga godkända användare för taggar definierad i CODEOWNERS.');
+            if (!allowedUsers || !allowedUsers.includes(pusher)) {
+              await github.rest.git.deleteRef({
+                owner,
+                repo,
+                ref: `tags/${tagName}`,
+              });
+
+              core.setFailed('Kunde inte verifiera att taggen pushats av behörig användare. Tar bort taggen');
               return;
             }
             
-            if (!allowedUsers.includes(pusher)) {
-              core.setFailed(`Endast ${allowedUsers.join(', ')} kan pusha taggar. Användare '${pusher}' är inte behörig.`);
-              return;
-            }
-
             core.notice(`Taggen '${tagName}' är korrekt skapad från en release-branch av behörig användare.`);
