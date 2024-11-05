@@ -97,14 +97,15 @@ jobs:
                 break;
             }
 
-            if (!allowedUser) {
-              core.setFailed('Inga godkända användare för taggar definierad i CODEOWNERS.');
+            if (!allowedUsers || !allowedUsers.includes(pusher)) {
+              await github.rest.git.deleteRef({
+                owner,
+                repo,
+                ref: `tags/${tagName}`,
+              });
+
+              core.setFailed('Kunde inte verifiera att taggen pushats av behörig användare. Tar bort taggen');
               return;
             }
             
-            if (!allowedUsers.includes(pusher)) {
-              core.setFailed(`Endast ${allowedUsers.join(', ')} kan pusha taggar. Användare '${pusher}' är inte behörig.`);
-              return;
-            }
-
             core.notice(`Taggen '${tagName}' är korrekt skapad från en release-branch av behörig användare.`);
