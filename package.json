@@ -1,9 +1,9 @@
 {
   "name": "csharp-playground",
   "displayName": "C# Playground",
-  "description": "Spin up a fast playground in C# with one command, with inline values and running hot reload for fast interaction",
-  "icon": "",
-  "version": "0.0.5",
+  "description": "Spin up a playground to quickly experiment with C# code in an isolated environment, with immediate feedback through inline runtime values for variables and everything written to the console",
+  "icon": "resources/csharp-logo.png",
+  "version": "1.0.0",
   "publisher": "hrnan",
   "engines": {
     "vscode": "^1.63.0"
