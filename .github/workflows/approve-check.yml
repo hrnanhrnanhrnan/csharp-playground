@@ -23,7 +23,7 @@ jobs:
       - name: Check out repository
         uses: actions/checkout@v3
 
-      - name: Kontrollera godkännare
+      - name: Check approver
         uses: actions/github-script@v6
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
@@ -34,26 +34,25 @@ jobs:
             const repo = context.repo.repo;
             const targetBranch = context.payload.pull_request.base.ref;
 
-            // Läs in CODEOWNERS-filen
             let codeownersContent;
             try {
               codeownersContent = fs.readFileSync('.github/CODEOWNERS', 'utf8');
             } catch (error) {
-              core.setFailed('Kunde inte läsa CODEOWNERS-filen.');
+              core.setFailed('Could not read CODEOWNERS file.');
               return;
             }
 
-            // Parsar CODEOWNERS-filen
             const codeownersLines = codeownersContent.split('\n').filter(line => line.trim() !== '');
             let requiredApprovers = [];
 
             for (const line of codeownersLines) {
-              // Ignorera kommentarer
-              if (line.startsWith('#')) continue;
+              if (line.startsWith('#')) {
+                continue;
+              }
 
               const [pattern, ...owners] = line.trim().split(/\s+/);
 
-              // Hantera branch-specifika mönster
+              // Handle branch patterns
               if (pattern.startsWith('branch:')) {
                 const branchPattern = pattern.replace('branch:', '');
                 const regexPattern = '^' + branchPattern.replace('*', '.*') + '$';
@@ -65,15 +64,15 @@ jobs:
               }
             }
 
-            // Ta bort eventuella dubbletter
+            // Remove duplicates
             requiredApprovers = [...new Set(requiredApprovers)];
 
             if (requiredApprovers.length === 0) {
-              core.setFailed(`Inga godkännare definierade för branchen '${targetBranch}' i CODEOWNERS.`);
+              core.setFailed(`No approvers defined for the branch '${targetBranch}' in CODEOWNERS.`);
               return;
             }
 
-            // Hämta listan över godkännare för PR:n
+            // Fetch approvers for the PR
             const { data: reviews } = await github.rest.pulls.listReviews({
               owner,
               repo,
@@ -84,11 +83,11 @@ jobs:
               .filter(review => review.state === 'APPROVED')
               .map(review => review.user.login);
 
-            // Kontrollera om någon av de nödvändiga godkännarna har godkänt PR:n
+            // Check if any of approvers for PR is among required approvers
             const hasRequiredApproval = requiredApprovers.some(user => approvedBy.includes(user));
 
             if (hasRequiredApproval) {
-              core.notice(`Pull request är godkänd av en behörig användare.`);
+              core.notice(`Pull request approved by authorized approver.`);
             } else {
-              core.setFailed(`Pull request måste godkännas av någon av följande användare: ${requiredApprovers.join(', ')}.`);
+              core.setFailed(`Pull request has to be approved by any of the required users: ${requiredApprovers.join(', ')}.`);
             }
