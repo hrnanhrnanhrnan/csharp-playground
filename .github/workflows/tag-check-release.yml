@@ -36,6 +36,7 @@ jobs:
             echo "The tag is not on a release branch."
             echo "tag_valid=false" >> $GITHUB_OUTPUT
             exit 1
+          fi
 
       - name: Delete Tag
         if: failure()
