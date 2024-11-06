@@ -39,7 +39,7 @@ jobs:
           fi
 
       - name: Delete Tag
-        if: failure()
+        if: ${{ steps.verify_tag.outputs.tag_valid == 'false' }}
         uses: actions/github-script@v6
         with:
           github-token: ${{ secrets.REPO_ACCESS_TOKEN }}
