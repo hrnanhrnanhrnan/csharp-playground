@@ -1,9 +1,12 @@
-name: Tag Check
+name: tag-check
 
 on:
   push:
     tags:
       - '*'
+
+permissions:
+  contents: write
 
 jobs:
   verify-tag:
