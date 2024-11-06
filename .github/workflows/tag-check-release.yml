@@ -9,7 +9,7 @@ permissions:
   contents: write
 
 jobs:
-  tag-check:
+  check-tag:
     runs-on: ubuntu-latest
     outputs:
       tag_valid: ${{ steps.verify_tag.outputs.tag_valid }}
@@ -33,7 +33,7 @@ jobs:
           if echo "$BRANCHES" | grep -qE 'origin/release/v[0-9]+\.[0-9]+\.[0-9]+$'; then
             echo "The tag is on a release branch."
             echo "tag_valid=true" >> $GITHUB_OUTPUT
-          else
+            else
             echo "The tag is not on a release branch."
             git push --delete origin $GITHUB_REF
             echo "tag_valid=false" >> $GITHUB_OUTPUT
@@ -41,9 +41,9 @@ jobs:
           fi
 
   build-and-release:
-    needs: tag-check
+    needs: check-tag
     runs-on: ubuntu-latest
-    if: ${{ needs.tag-check.result == 'success' }}
+    if: ${{ needs.check-tag.result == 'success' }}
     steps:
       - name: Check out repository
         uses: actions/checkout@v3
