@@ -1,4 +1,4 @@
-name: approve-check
+name: Check Approver
 
 on:
   pull_request_review:
@@ -14,7 +14,7 @@ on:
 
 jobs:
   check-approver:
-    name: approve-check
+    name: check-approver
     runs-on: ubuntu-latest
     steps:
       - name: Check out repository
