@@ -2,7 +2,7 @@
   "name": "csharp-playground",
   "displayName": "C# Playground",
   "description": "Spin up a playground to quickly experiment with C# code in an isolated environment, with immediate feedback through inline runtime values for variables and everything written to the console",
-  "icon": "resources/csharp-logo.png",
+  "icon": "resources/logo.png",
   "version": "1.0.0",
   "publisher": "hrnan",
   "engines": {
