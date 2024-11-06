@@ -33,12 +33,33 @@ jobs:
           if echo "$BRANCHES" | grep -qE 'origin/release/v[0-9]+\.[0-9]+\.[0-9]+$'; then
             echo "The tag is on a release branch."
             echo "tag_valid=true" >> $GITHUB_OUTPUT
-            else
+          else
             echo "The tag is not on a release branch."
-            git push --delete origin $GITHUB_REF
             echo "tag_valid=false" >> $GITHUB_OUTPUT
             exit 1
           fi
+
+      - name: Delete Tag
+        if: ${{ steps.verify_tag.outputs.tag_valid == 'false' }}
+        uses: actions/github-script@v6
+        with:
+          github-token: ${{ secrets.REPO_ACCESS_TOKEN }}
+          script: |
+            const tagRef = context.ref; // refs/tags/v1.0.2
+            const tagName = tagRef.replace('refs/tags/', '');
+            const owner = context.repo.owner;
+            const repo = context.repo.repo;
+
+            try {
+              await github.rest.git.deleteRef({
+                owner,
+                repo,
+                ref: `tags/${tagName}`,
+              });
+              core.notice(`Tag '${tagName}' has been deleted.`);
+            } catch (error) {
+              core.setFailed(`Failed to delete tag '${tagName}': ${error.message}`);
+            }
 
   build-and-release:
     needs: check-tag
