@@ -1,17 +1,18 @@
-name: Build and Package Extension
+name: Tag Check and Release
 
 on:
-  workflow_run:
-    workflows: ["tag-check"]
-    types:
-      - completed
+  push:
+    tags:
+      - 'v*'
 
 permissions:
   contents: write
 
 jobs:
-  build-and-package:
+  tag-check:
     runs-on: ubuntu-latest
+    outputs:
+      tag_valid: ${{ steps.verify_tag.outputs.tag_valid }}
     steps:
       - name: Check out repository
         uses: actions/checkout@v3
@@ -19,6 +20,7 @@ jobs:
           fetch-depth: 0
 
       - name: Verify tag is on a release branch
+        id: verify_tag
         shell: bash
         run: |
           TAG_COMMIT_SHA=$(git rev-parse $GITHUB_REF)
@@ -28,26 +30,40 @@ jobs:
           echo "Branches containing the commit of the tag:"
           echo "$BRANCHES"
 
-          if echo "$BRANCHES" | grep -qE 'origin/release/'; then
-            echo "The tag is on a release-branch."
+          if echo "$BRANCHES" | grep -qE 'origin/release/v[0-9]+\.[0-9]+\.[0-9]+$'; then
+            echo "The tag is on a release branch."
+            echo "tag_valid=true" >> $GITHUB_OUTPUT
           else
-            echo "The tag is not on a release-branch. Ending workflow."
+            echo "The tag is not on a release branch."
+            git push --delete origin $GITHUB_REF
+            echo "tag_valid=false" >> $GITHUB_OUTPUT
             exit 1
           fi
+
+  build-and-release:
+    needs: tag-check
+    runs-on: ubuntu-latest
+    if: ${{ needs.tag-check.result == 'success' }}
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v3
+        with:
+          fetch-depth: 0
 
       - name: Set up Node.js
         uses: actions/setup-node@v3
         with:
           node-version: '18'
 
-      - name: Install dependencies
-        run: npm install
-
       - name: Update package.json version
         run: |
           VERSION=${GITHUB_REF#refs/tags/v}
           echo "Updating version to $VERSION"
           npm version --no-git-tag-version $VERSION
+          echo "VERSION=$VERSION" >> $GITHUB_ENV
+
+      - name: Install dependencies
+        run: npm install
 
       - name: Install vsce
         run: npm install -g @vscode/vsce
@@ -55,28 +71,14 @@ jobs:
       - name: Package Extension
         run: vsce package
 
-      - name: Upload Artifact
-        uses: actions/upload-artifact@v3
-        with:
-          name: vsce-package
-          path: '*.vsix'
-
-      - name: Publish Artifact
+      - name: Publish Extension
         run: vsce publish
         env:
           VSCE_PAT: ${{ secrets.VSCE_TOKEN }}
-        
-      - name: Upload Artifact
-        uses: actions/upload-artifact@v3
-        with:
-          name: vsce-package
-          path: '*.vsix'
 
       - name: Create GitHub Release
         id: create_release
         uses: actions/create-release@v1
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
           tag_name: ${{ github.ref_name }}
           release_name: Release ${{ github.ref_name }}
@@ -87,10 +89,8 @@ jobs:
 
       - name: Upload Release Asset
         uses: actions/upload-release-asset@v1
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
           upload_url: ${{ steps.create_release.outputs.upload_url }}
-          asset_path: ./csharp-playground-${{ github.ref_name }}.vsix
-          asset_name: csharp-playground-${{ github.ref_name }}.vsix
+          asset_path: ./csharp-playground-${{ env.VERSION }}.vsix
+          asset_name: csharp-playground-${{ env.VERSION }}.vsix
           asset_content_type: application/octet-stream
