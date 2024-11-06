@@ -10,7 +10,7 @@ import { PlaygroundExtensionManager } from "./PlaygroundExtensionManager";
 
 export class PlaygroundManager {
   private readonly playgroundRunnerTerminalName = "Playground-runner";
-  private readonly maxServerRetries = 15;
+  private readonly maxServerRetries = 30;
   private readonly extensionManager: PlaygroundExtensionManager;
   private readonly serverManager: AnalyzerServerManager;
   private readonly channel: PlaygroundOutputChannel;
@@ -263,11 +263,17 @@ export class PlaygroundManager {
 
   async waitForAnalyzerServerReady(token: vscode.CancellationToken) {
     let tryCount = 1;
+    let initialTry = true;
 
     while (tryCount <= this.maxServerRetries) {
       this.channel.appendLine(
         `Checking if Analyzer server is ready, try ${tryCount} of ${this.maxServerRetries}`
       );
+
+      if (initialTry) {
+        initialTry = false;
+        await new Promise((resolve) => setTimeout(resolve, 3000));
+      }
 
       if (token.isCancellationRequested) {
         this.channel.appendLine(

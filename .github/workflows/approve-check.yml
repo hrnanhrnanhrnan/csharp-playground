@@ -1,23 +1,20 @@
-name: Approve Check
+name: approve-check
 
 on:
   pull_request_review:
     types:
       - submitted
-  pull_request:
-    branches:
-      - main
-      - dev
-      - release/**
-    types:
-      - opened
       - edited
-      - synchronize
+      - dismissed
+  pull_request:
+    types:
       - reopened
       - ready_for_review
+      - closed
 
 jobs:
   check-approver:
+    name: approve-check
     runs-on: ubuntu-latest
     steps:
       - name: Check out repository
