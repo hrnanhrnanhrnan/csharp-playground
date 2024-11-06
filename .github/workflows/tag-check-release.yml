@@ -11,8 +11,6 @@ permissions:
 jobs:
   check-tag:
     runs-on: ubuntu-latest
-    outputs:
-      tag_valid: ${{ steps.verify_tag.outputs.tag_valid }}
     steps:
       - name: Check out repository
         uses: actions/checkout@v3
@@ -22,6 +20,7 @@ jobs:
       - name: Verify tag is on a release branch
         id: verify_tag
         shell: bash
+        continue-on-error: true
         run: |
           TAG_COMMIT_SHA=$(git rev-parse $GITHUB_REF)
           echo "Tag commit SHA: $TAG_COMMIT_SHA"
@@ -36,10 +35,10 @@ jobs:
           else
             echo "The tag is not on a release branch."
             echo "tag_valid=false" >> $GITHUB_OUTPUT
-          fi
+            exit 1
 
       - name: Delete Tag
-        if: ${{ steps.verify_tag.outputs.tag_valid == 'false' }}
+        if: failure()
         uses: actions/github-script@v6
         with:
           github-token: ${{ secrets.REPO_ACCESS_TOKEN }}
@@ -59,6 +58,12 @@ jobs:
             } catch (error) {
               core.setFailed(`Failed to delete tag '${tagName}': ${error.message}`);
             }
+
+      - name: Fail Job if Tag is Invalid
+        if: ${{ steps.verify_tag.outputs.tag_valid == 'false' }}
+        run: |
+          echo "Failing job because tag is invalid."
+          exit 1
 
   build-and-release:
     needs: check-tag
@@ -106,6 +111,7 @@ jobs:
             Automatically generated release for version ${{ github.ref_name }}.
           draft: false
           prerelease: false
+          token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Upload Release Asset
         uses: actions/upload-release-asset@v1
