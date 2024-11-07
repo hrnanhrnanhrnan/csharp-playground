@@ -24,6 +24,12 @@ To install C# Playground:
 
 Once installed, you’re ready to start coding in the playground!
 
+## NOTES
+
+- Only global variables, i.e. variables declared at the top level, will have their values displayed inline. This is a limitation when running the code with "Microsoft.CodeAnalysis.CSharp.Scripting" nuget which is used in the Analyzer server. 
+
+- All code has to be written in Program.cs in the playground directory when running the playground, i.e. types can NOT be declared in separate files. This is because it is only the code in Program.cs which is sent from the Client (vscode) to the Analyzer server.   
+
 ## Extension Settings
 
 You can configure the following settings to customize your C# Playground experience:
@@ -39,8 +45,10 @@ You can configure the following settings to customize your C# Playground experie
 
 ## Release Notes
 
-1.0.0
+1.0.6
 
-Initial release with full playground functionality.
+Release with full playground functionality.
 Inline runtime values for global variables and console outputs.
-"New Playground" command for rapid setup.
+- "New Playground" command for rapid setup.
+- "Continue Playground" command for picking up where you left off.
+- "Stop Playground" command for shutting down the playground.
