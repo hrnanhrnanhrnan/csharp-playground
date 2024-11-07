@@ -1,6 +1,6 @@
 # Change Log
 
-All notable changes to the "csharp-playground" extension will be documented in this file.
+All notable changes will be documented here.
 
 ## [1.0.0] - [1.0.6]
 
