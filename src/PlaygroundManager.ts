@@ -10,7 +10,7 @@ import { PlaygroundExtensionManager } from "./PlaygroundExtensionManager";
 
 export class PlaygroundManager {
   private readonly playgroundRunnerTerminalName = "Playground-runner";
-  private readonly maxServerRetries = 30;
+  private readonly maxServerRetries = 60;
   private readonly extensionManager: PlaygroundExtensionManager;
   private readonly serverManager: AnalyzerServerManager;
   private readonly channel: PlaygroundOutputChannel;
